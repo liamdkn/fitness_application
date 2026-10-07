@@ -385,9 +385,11 @@ extension BluetoothScale: CBPeripheralDelegate {
             if onWeightChannel { self.weightChannelPackets += 1 }
             if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
             self.append(line + noteText + (finalDecoded.map { "  = \($0) g" } ?? ""))
-            if let liveValue { self.live = liveValue }
-            if let liveUnit { self.unit = liveUnit }
-            if let decoded = finalDecoded { self.grams = decoded }
+            // Only publish changes: the scale repeats the same reading several times a
+            // second, and every assignment would redraw whatever screen is watching.
+            if let liveValue, self.live != liveValue { self.live = liveValue }
+            if let liveUnit, self.unit != liveUnit { self.unit = liveUnit }
+            if let decoded = finalDecoded, self.grams != decoded { self.grams = decoded }
             if let liveValue {
                 if tareFrame {
                     // First flagged frame = the press. The weight before it is the amount.

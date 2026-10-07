@@ -84,6 +84,9 @@ nonisolated enum ScaleDecoding {
         /// The reading has settled (the scale's own flag): false while it is still changing.
         let settled: Bool
         let isNegative: Bool
+        /// The scale's own food selected with its arrow buttons (0 when none). A message
+        /// that changes this is the scale announcing a pick, not a weight on the plate.
+        let foodId: UInt32
     }
 
     /// Reads a live-weight (0xA6) notification: after a 3-byte length/sequence
@@ -100,11 +103,13 @@ nonisolated enum ScaleDecoding {
         let milligrams = Int(data[2]) << 16 | Int(data[3]) << 8 | Int(data[4])
         let negative = flags & 0x80 != 0
         let magnitude = (Double(milligrams) / 1000 * 10).rounded() / 10
+        let foodId = data.count >= 9 ? data[5..<9].reduce(UInt32(0)) { $0 << 8 | UInt32($1) } : 0
         return IcomonWeight(
             grams: negative ? -magnitude : magnitude,
             unit: data[1] >> 4,
             settled: flags & 0x01 != 0,
-            isNegative: negative
+            isNegative: negative,
+            foodId: foodId
         )
     }
 

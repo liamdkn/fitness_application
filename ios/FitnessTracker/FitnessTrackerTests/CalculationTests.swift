@@ -213,6 +213,16 @@ struct IcomonKitchenScaleTests {
         #expect(parse("ac 42 00 0e 00 00 00 04 da 30 00 00 00 00 00 00 00 00 00 a6 c2")?.settled == false)
     }
 
+    @Test func aPickedFoodIdIsReadFromTheWeightMessage() {
+        // Captured while flicking the scale's arrows: food id 18367, with a made-up 63 g.
+        let frame = ScaleDecoding.icomonFrame(Data("ac 42 00 0e 00 00 10 00 f6 18 00 00 47 bf 00 00 00 00 00 a6 d8".split(separator: " ").compactMap { UInt8($0, radix: 16) }))
+        let weight = frame.flatMap(ScaleDecoding.icomonWeight)
+        #expect(weight?.foodId == 18367)
+        #expect(weight?.grams == 63.0)
+        let plain = ScaleDecoding.icomonFrame(Data("ac 42 00 0e 00 01 00 00 3e 80 00 00 00 00 00 00 00 00 00 a6 73".split(separator: " ").compactMap { UInt8($0, radix: 16) }))
+        #expect(plain.flatMap(ScaleDecoding.icomonWeight)?.foodId == 0)
+    }
+
     @Test func aMinusSignIsNegativeWeightNotMovement() {
         // Captured after a TARE with a bowl on: lifting the bowl gave a steady 0x80 reading of 16 g.
         let lifted = ScaleDecoding.icomonFrame(Data("ac 42 00 0e 00 80 00 00 3e 80 00 00 00 00 00 00 00 00 00 a6 f2".split(separator: " ").compactMap { UInt8($0, radix: 16) }))

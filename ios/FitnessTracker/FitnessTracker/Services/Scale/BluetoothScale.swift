@@ -60,6 +60,8 @@ final class BluetoothScale: NSObject {
     /// to check the scale's button is being noticed).
     var tarePresses = 0
     private var tareDetector = ScaleDecoding.TareDetector()
+    /// The scale's own food last picked with its arrow buttons; a change is a pick, not a weight.
+    private var lastFoodId: UInt32 = 0
     private var lastUnitRequest: (code: Int, time: Date)?
     /// A tare the app asked for is expected to flag the scale's data too; it isn't a button press to act on.
     private var appTareUntil: Date?
@@ -252,6 +254,7 @@ extension BluetoothScale: CBCentralManagerDelegate {
             self.weightChannelPackets = 0
             self.tarePresses = 0
             self.tareDetector.reset()
+            self.lastFoodId = 0
             self.handshakeTask?.cancel()
             self.connectedName = peripheral.name ?? "Scale"
             self.status = "Connected. Looking at what it offers..."
@@ -376,6 +379,7 @@ extension BluetoothScale: CBPeripheralDelegate {
         var moving: Double?
         var unitCode: Int?
         var sampleSettled = true
+        var foodIdValue: UInt32 = 0
         if uuid == CBUUID(string: "FFB2"), let icomon = ScaleDecoding.icomonFrame(data) {
             note = "  [type \(String(format: "%02X", icomon.type)), checksum \(icomon.checksumOK ? "ok" : "BAD")"
             if icomon.type == 0xA0 { announced = true; note += ", capabilities - replying" }
@@ -387,6 +391,7 @@ extension BluetoothScale: CBPeripheralDelegate {
                 moving = weight.grams
                 unitCode = Int(weight.unit)
                 sampleSettled = weight.settled
+                foodIdValue = weight.foodId
                 if weight.settled && !weight.isNegative { decoded = weight.grams }
             }
             note += "]"
@@ -396,14 +401,20 @@ extension BluetoothScale: CBPeripheralDelegate {
         let liveValue = moving
         let liveUnit = unitCode
         let steady = sampleSettled
+        let foodId = foodIdValue
         let onWeightChannel = uuid == CBUUID(string: "FFB2")
         let noteText = note
         Task { @MainActor in
             if onWeightChannel { self.weightChannelPackets += 1 }
             if didAnnounce, !self.handshakeSent { self.sendIcomonHandshake() }
             self.append(line + noteText + (finalDecoded.map { "  = \($0) g" } ?? ""))
+            // Pressing the scale's arrows announces a food of its own with a made-up weight:
+            // that isn't something on the plate, so it's ignored.
+            let isPick = foodId != self.lastFoodId
+            self.lastFoodId = foodId
             // Only publish changes: the scale repeats the same reading several times a
             // second, and every assignment would redraw whatever screen is watching.
+            if isPick, liveValue != nil { return }
             if let liveValue, self.live != liveValue { self.live = liveValue }
             if let liveUnit, self.unit != liveUnit { self.unit = liveUnit }
             if let decoded = finalDecoded, self.grams != decoded { self.grams = decoded }

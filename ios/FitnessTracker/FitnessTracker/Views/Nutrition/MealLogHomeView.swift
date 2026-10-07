@@ -105,21 +105,23 @@ struct MealLogHomeView: View {
 
                     CalorieProgressBar(logged: totals.calories, target: adjustedCalorieTarget)
 
-                    HStack(spacing: 12) {
-                        MacroProgressCard(label: "Protein", value: totals.proteinG, target: adjustedProteinTarget, color: AppColor.protein)
-                        MacroProgressCard(label: "Carbs", value: totals.carbsG, target: adjustedCarbsTarget, color: AppColor.carbs)
-                        MacroProgressCard(label: "Fat", value: totals.fatG, target: adjustedFatTarget, color: AppColor.fat)
+                    NavigationLink {
+                        MacronutrientsView(
+                            totals: totals,
+                            proteinTarget: adjustedProteinTarget,
+                            carbsTarget: adjustedCarbsTarget,
+                            fatTarget: adjustedFatTarget,
+                            fibreGoalG: preferences?.fibreGoalG ?? 30,
+                            sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300
+                        )
+                    } label: {
+                        HStack(spacing: 12) {
+                            MacroProgressCard(label: "Protein", value: totals.proteinG, target: adjustedProteinTarget, color: AppColor.protein)
+                            MacroProgressCard(label: "Carbs", value: totals.carbsG, target: adjustedCarbsTarget, color: AppColor.carbs)
+                            MacroProgressCard(label: "Fat", value: totals.fatG, target: adjustedFatTarget, color: AppColor.fat)
+                        }
                     }
-
-                    SodiumRow(
-                        sodiumMg: totals.sodiumMg,
-                        sodiumLimitMg: preferences?.sodiumLimitMg ?? 2300
-                    )
-
-                    FibreRow(
-                        fibreG: totals.fiberG,
-                        goalG: preferences?.fibreGoalG ?? 30
-                    )
+                    .buttonStyle(.plain)
 
                     if !bankAdjustment.treatsToday.isEmpty || !bankAdjustment.fundedTreats.isEmpty {
                         CalorieBankBanner(adjustment: bankAdjustment)
@@ -478,7 +480,7 @@ private struct MealSlotSummaryContent: View {
 
 }
 
-private struct FibreRow: View {
+struct FibreRow: View {
     let fibreG: Double
     let goalG: Int
 
@@ -504,7 +506,7 @@ private struct FibreRow: View {
 }
 
 /// Sodium against its daily limit. (Only counts foods that have a figure on record.)
-private struct SodiumRow: View {
+struct SodiumRow: View {
     let sodiumMg: Double
     let sodiumLimitMg: Int
 
@@ -530,7 +532,7 @@ private struct SodiumRow: View {
     }
 }
 
-private struct MacroProgressCard: View {
+struct MacroProgressCard: View {
     let label: String
     let value: Double
     let target: Double?

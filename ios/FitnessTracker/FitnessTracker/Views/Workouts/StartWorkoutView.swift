@@ -507,9 +507,6 @@ private struct WeekDayCard: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    Label("Track it on your Apple Watch", systemImage: "applewatch")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 } else if !hasActiveWorkout {
                     // Not gated to today - a scheduled walk or stairmaster session is just as
                     // startable a day early or a day late as a workout is (see

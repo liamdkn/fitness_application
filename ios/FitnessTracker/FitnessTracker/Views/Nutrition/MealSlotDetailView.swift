@@ -515,6 +515,7 @@ private struct EditMealEntryQuantityView: View {
     @State private var scale = BluetoothScale.shared
     /// "Use the scale" was tapped and the amount not changed since.
     @State private var usedScale = false
+    @State private var ingredients = RecipeIngredientList()
     private let info: EditableFoodInfo?
 
     init(
@@ -614,6 +615,9 @@ private struct EditMealEntryQuantityView: View {
                     }
                     .listRowBackground(AppRowBackground())
                 }
+                if entry.recipe != nil {
+                    RecipeIngredientsSection(list: ingredients, quantity: quantity)
+                }
                 Section {
                     HStack {
                         Text("Salt added")
@@ -648,6 +652,9 @@ private struct EditMealEntryQuantityView: View {
             .navigationTitle(info?.name ?? entry.name)
             .scrollDismissesKeyboard(.interactively)
             .onAppear { matchScale() }
+            .task {
+                if let recipe = entry.recipe { ingredients = await RecipeIngredientList.load(recipe: recipe) }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }

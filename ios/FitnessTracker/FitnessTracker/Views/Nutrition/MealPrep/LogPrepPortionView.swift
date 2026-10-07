@@ -20,6 +20,7 @@ struct LogPrepPortionView: View {
     @State private var slots: [MealSlot] = []
     @State private var selectedSlotId: UUID?
     @State private var date = Date()
+    @State private var ingredients = RecipeIngredientList()
 
     private var portionWeightG: Double? { summary.prep.portionWeightG }
 
@@ -94,6 +95,8 @@ struct LogPrepPortionView: View {
                     }
                     .listRowBackground(AppRowBackground())
                 }
+
+                RecipeIngredientsSection(list: ingredients, quantity: quantity ?? 1)
             }
             .appScreen()
             .navigationTitle(summary.prep.name)
@@ -115,6 +118,7 @@ struct LogPrepPortionView: View {
                     .appToolbarTint()
                 }
             }
+            .task { ingredients = await RecipeIngredientList.load(recipe: summary.recipe, portions: summary.prep.portions) }
             .task {
                 guard fixedSlot == nil else { return }
                 slots = (try? await MealSlotsRepository().fetchAll()) ?? []

@@ -96,7 +96,7 @@ struct LogPrepPortionView: View {
                     .listRowBackground(AppRowBackground())
                 }
 
-                RecipeIngredientsSection(list: ingredients, quantity: quantity ?? 1)
+                RecipeIngredientsSection(list: ingredients)
             }
             .appScreen()
             .navigationTitle(summary.prep.name)
@@ -118,7 +118,7 @@ struct LogPrepPortionView: View {
                     .appToolbarTint()
                 }
             }
-            .task { ingredients = await RecipeIngredientList.load(recipe: summary.recipe, portions: summary.prep.portions) }
+            .task { ingredients = await RecipeIngredientList.load(recipe: summary.recipe) }
             .task {
                 guard fixedSlot == nil else { return }
                 slots = (try? await MealSlotsRepository().fetchAll()) ?? []

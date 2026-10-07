@@ -24,6 +24,8 @@ struct SavedMealPickerView: View {
     @State private var recategorizing: SavedMeal?
     @State private var stockItems: [MealPrepSummary] = []
     @State private var pendingPrep: MealPrepSummary?
+    /// A batch opened to look at, without logging it.
+    @State private var viewingPrep: MealPrepSummary?
     private let repository = SavedMealsRepository()
 
     /// Category sections alphabetical, "Other" (no category) at the bottom;
@@ -52,11 +54,24 @@ struct SavedMealPickerView: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(stockItems) { summary in
-                            Button {
-                                pendingPrep = summary
-                            } label: {
-                                MealPrepRow(summary: summary)
-                                    .foregroundStyle(.primary)
+                            HStack {
+                                Button {
+                                    pendingPrep = summary
+                                } label: {
+                                    MealPrepRow(summary: summary)
+                                        .foregroundStyle(.primary)
+                                }
+                                .buttonStyle(.plain)
+                                // See what's in it (to know what to add) without logging.
+                                Button {
+                                    viewingPrep = summary
+                                } label: {
+                                    Image(systemName: "list.bullet")
+                                        .foregroundStyle(AppColor.accent)
+                                        .padding(8)
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Ingredients")
                             }
                         }
                     } header: {
@@ -118,6 +133,11 @@ struct SavedMealPickerView: View {
                         stock.onLog(summary, quantity)
                         dismiss()
                     }
+                }
+            }
+            .sheet(item: $viewingPrep) { summary in
+                NavigationStack {
+                    MealPrepDetailView(summary: summary, previous: nil, onChange: { Task { await load() } })
                 }
             }
             .sheet(item: $recategorizing) { savedMeal in

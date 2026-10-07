@@ -616,7 +616,7 @@ private struct EditMealEntryQuantityView: View {
                     .listRowBackground(AppRowBackground())
                 }
                 if entry.recipe != nil {
-                    RecipeIngredientsSection(list: ingredients, quantity: quantity)
+                    RecipeIngredientsSection(list: ingredients)
                 }
                 Section {
                     HStack {

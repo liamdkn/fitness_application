@@ -79,6 +79,11 @@ struct MealLogHomeView: View {
         goal?.fatGTarget.map { $0 + bankAdjustment.fatDelta }
     }
 
+    /// The selected day is after today.
+    private var isFutureDay: Bool {
+        Calendar.current.startOfDay(for: selectedDate) > Calendar.current.startOfDay(for: Date())
+    }
+
     private var isRestDay: Bool {
         trainingDays.isRestDay(selectedDate, in: weekdayTypes)
     }
@@ -163,7 +168,11 @@ struct MealLogHomeView: View {
                                 viewModel: viewModel,
                                 preworkoutCarbTargetG: preworkoutCarbTargetG,
                                 plannedTreats: bankAdjustment.treatsToday.filter { $0.mealSlotId == group.slot.id },
-                                onLogTapped: { addingFoodToSlot = group.slot }
+                                onLogTapped: { addingFoodToSlot = group.slot },
+                                // Planning ahead: an empty meal on a future day can take the day before's.
+                                onCopyFromPreviousDay: isFutureDay && group.entries.isEmpty
+                                    ? { Task { await viewModel.copyMealFromPreviousDay(mealSlotId: group.slot.id, date: selectedDate) } }
+                                    : nil
                             )
                         }
                     }
@@ -381,6 +390,8 @@ private struct MealSlotCard: View {
     /// Treats banked onto *this* slot today, if any - see `CalorieBankCalculator`.
     let plannedTreats: [PlannedTreat]
     let onLogTapped: () -> Void
+    /// Set for an empty meal on a future day: slide left to copy the day before's.
+    var onCopyFromPreviousDay: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -410,6 +421,9 @@ private struct MealSlotCard: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .appCard(cornerRadius: 12)
+        .swipeAction("Copy day before", icon: "doc.on.doc.fill", isEnabled: onCopyFromPreviousDay != nil) {
+            onCopyFromPreviousDay?()
+        }
     }
 }
 

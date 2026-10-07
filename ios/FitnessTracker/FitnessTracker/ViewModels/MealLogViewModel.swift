@@ -278,6 +278,21 @@ final class MealLogViewModel: ObservableObject {
         throw RepositoryError.insertFailed
     }
 
+    /// Copies the same meal from the day before `date` onto `date` - for planning ahead.
+    func copyMealFromPreviousDay(mealSlotId: UUID, date: Date) async {
+        guard let previous = Calendar.current.date(byAdding: .day, value: -1, to: date) else { return }
+        do {
+            let source = try await offlineQueue.fetchEntries(date: previous).filter { $0.mealSlotId == mealSlotId }
+            guard !source.isEmpty else {
+                errorMessage = "Nothing was logged for that meal the day before."
+                return
+            }
+            await copyEntries(source, mealSlotId: mealSlotId, date: date)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Logs copies of entries from another day (see `CopyMealView`) into a
     /// slot on `date` - new rows through the offline queue, so it works with
     /// no connection and editing the copies leaves the originals alone.

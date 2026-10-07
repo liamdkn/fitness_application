@@ -501,6 +501,9 @@ private struct EditMealEntryQuantityView: View {
     @State private var saltText = ""
     @State private var quantityText: String
     @State private var inputMode: QuantityInputMode = .servings
+    /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
+    @State private var skipConversion = false
+    @State private var scale = BluetoothScale.shared
     private let info: EditableFoodInfo?
 
     init(
@@ -542,7 +545,7 @@ private struct EditMealEntryQuantityView: View {
                         }
                         .pickerStyle(.segmented)
                         .onChange(of: inputMode) { oldMode, newMode in
-                            convertQuantityText(from: oldMode, to: newMode, servingSize: info.servingSize)
+                            if skipConversion { skipConversion = false } else { convertQuantityText(from: oldMode, to: newMode, servingSize: info.servingSize) }
                         }
                         HStack {
                             Text(inputMode == .servings ? "Servings" : "Amount")
@@ -553,6 +556,17 @@ private struct EditMealEntryQuantityView: View {
                                 .frame(width: 70)
                             Text(inputMode == .servings ? "\u{00d7} \(servingLabel(info))" : info.servingUnit)
                                 .foregroundStyle(.secondary)
+                        }
+                        if let onScale = scaleAmount(info) {
+                            Button {
+                                if inputMode != .amount {
+                                    skipConversion = true
+                                    inputMode = .amount
+                                }
+                                quantityText = Self.formattedQuantity(onScale)
+                            } label: {
+                                Label("Use the scale: \(Self.formattedQuantity(onScale)) \(info.servingUnit)", systemImage: "scalemass")
+                            }
                         }
                     }
                     .listRowBackground(AppRowBackground())
@@ -655,6 +669,13 @@ private struct EditMealEntryQuantityView: View {
         if original == nil || abs(combined.timeIntervalSince(original ?? combined)) >= 60 {
             onSetEatenAt(combined)
         }
+    }
+
+    /// What's on the scale now, in this food's unit (g or ml), when a scale is connected and holding something.
+    private func scaleAmount(_ info: EditableFoodInfo) -> Double? {
+        guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
+              let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: info.servingUnit, scaleUnit: scale.unit) else { return nil }
+        return (amount * 10).rounded() / 10
     }
 
     private func convertQuantityText(from oldMode: QuantityInputMode, to newMode: QuantityInputMode, servingSize: Double) {

@@ -24,6 +24,10 @@ more) next to the scale and follow the on-screen prompts:
                                     # display unit (0 g, 1 ml, 2 lb:oz, 3 oz, 4 mg, 5 ml milk,
                                     # 6 fl oz, 7 fl oz milk) and print what it does
     python scale_probe.py --tare    # the same with the tare command (leave something on the scale)
+    python scale_probe.py --show    # put a food on the scale's screen: name and macros per 100 g
+                                    # (Oats by default; or --show "Whole Milk" 64 3.4 4.8 3.6
+                                    #  = name, kcal, protein, carbs, fat). Press the scale's tick
+                                    # and arrow buttons and the messages they send are printed.
 
 Send back everything it prints.
 """
@@ -209,7 +213,59 @@ async def command(name: str, data: bytes):
         print("\nDone. Did the scale's own display change? Say what it showed.")
 
 
+async def show_food(name: str, kcal: float, protein: float, carbs: float, fat: float):
+    from pyfitdaysplus.models import CommonFood, NutritionFact, NutritionFactType
+    from pyfitdaysplus.protocol.food_write import build_set_common_food_frames
+
+    food = CommonFood(
+        food_id=7,
+        name=name,
+        weight=100,
+        facts=(
+            NutritionFact(NutritionFactType.CALORIE, kcal),
+            NutritionFact(NutritionFactType.PROTEIN, protein),
+            NutritionFact(NutritionFactType.CARBOHYDRATE, carbs),
+            NutritionFact(NutritionFactType.FAT, fat),
+        ),
+    )
+    frames = build_set_common_food_frames(food)
+    device = await find()
+    started = time.time()
+
+    def show(_, message: bytearray):
+        print(f"[{time.time() - started:5.1f}s]   <- {describe(bytes(message))}", flush=True)
+
+    async def send(label: str):
+        print(f"\n[{time.time() - started:5.1f}s] -> {label}", flush=True)
+        for data in frames:
+            print(f"        {data.hex(' ')}", flush=True)
+            await client.write_gatt_char(WRITE, data, response=True)
+            await asyncio.sleep(0.2)
+
+    async with BleakClient(device) as client:
+        await client.start_notify(NOTIFY, show)
+        await asyncio.sleep(2)
+        await client.write_gatt_char(WRITE, HANDSHAKE, response=True)
+        await asyncio.sleep(1)
+        await client.write_gatt_char(WRITE, USER_INFO, response=True)
+        await asyncio.sleep(3)
+        await send(f"food: {name}, {kcal:g} kcal, P {protein:g} C {carbs:g} F {fat:g} per 100 g")
+        print("\n>>> LOOK AT THE SCALE'S SCREEN. In 8 seconds put something on it. <<<", flush=True)
+        await asyncio.sleep(8)
+        await send("the same food again (the library does this when a weight is on)")
+        print("\n>>> Now press the tick and the arrow buttons on the scale, one at a time. <<<", flush=True)
+        await asyncio.sleep(20)
+        print("\nDone. Say what the screen showed: name, kcal, protein, carbs, fat - and whether they changed with the weight.")
+
+
 if __name__ == "__main__":
+    if "--show" in sys.argv:
+        rest = [a for a in sys.argv[sys.argv.index("--show") + 1:] if not a.startswith("--")]
+        if len(rest) >= 5:
+            asyncio.run(show_food(rest[0], *map(float, rest[1:5])))
+        else:
+            asyncio.run(show_food("Oats", 389, 16.9, 66.3, 6.9))
+        sys.exit()
     if "--unit" in sys.argv:
         code = int(sys.argv[sys.argv.index("--unit") + 1])
         asyncio.run(command(f"set unit {code} ({UNIT_NAMES.get(code, '?')})", setting(2, code)))

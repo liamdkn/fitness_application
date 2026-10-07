@@ -134,14 +134,11 @@ struct CopyMealView: View {
         }
     }
 
-    /// The days that have the chosen source meal. Copying a meal onto itself
-    /// leaves today out (it'd just double it up).
+    /// The days that have the chosen source meal, today included - so a food from
+    /// today's own meal can be added again with its +.
     private func rebuild() {
         let source = sourceSlotId ?? slot.id
-        let todayString = DateFormatting.isoDate(Date())
-        let entries = allEntries.filter {
-            $0.mealSlotId == source && !(source == slot.id && $0.date == todayString)
-        }
+        let entries = allEntries.filter { $0.mealSlotId == source }
         do {
             let byDate = Dictionary(grouping: entries, by: \.date)
             meals = byDate.compactMap { dateString, dayEntries -> PastMeal? in

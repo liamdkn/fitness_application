@@ -50,6 +50,7 @@ The app separates SwiftUI views, view models, data/domain models, repositories, 
 - Make source and confidence visible: manually entered, imported, cached, or calculated values should not be confused.
 - Preserve the values the user actually logged when a catalog item later changes; make corrections explicit.
 - Keep calendar dates and timestamps consistent across local time, HealthKit, and server summaries.
+- Meals are often planned ahead: the owner logs tomorrow's meals in advance. A meal entry's `date` is the day it belongs to, `logged_at` is only when it was typed in, and `eaten_at` (one time per meal, or per food in Snacks) is when it was actually eaten, so unknown until set. Anything that lines food up in time (glucose, training, summaries) must use `eaten_at`/`date`, never `logged_at`, and must treat entries on a future date, or later today than now, as planned rather than consumed.
 - Make calculations deterministic, explainable, testable, and separate from presentation.
 - Provide recovery, export/deletion, migration, and backup expectations before opening the app to other users.
 - Do not ship user progress-photo uploads to Supabase. V1 photos must be local-only with strong file protection and no backup copy, or the photo feature must be removed.
@@ -66,6 +67,7 @@ The desired direction is an in-app assistant that can explain the user's own pro
 - Call the model only from an authenticated server-side endpoint (such as a Supabase Edge Function). Never include provider credentials in the iOS app.
 - Fetch only the minimum date-bounded data required. Do not send full history, photos, or precise route data by default.
 - Keep exact calculations in deterministic app/backend code; give the assistant calculated values and provenance rather than asking it to do arithmetic.
+- Tell the assistant which nutrition entries are planned (future dates, or not yet reached today) versus eaten, and that `logged_at` is entry time, not meal time. The owner pre-plans meals, so treating planned entries as consumed would corrupt its read of intake, timing and adherence.
 - Treat user text, food catalog values, and model output as untrusted. Use constrained structured output, rate/cost/size limits, safe rendering, and evaluation for prompt injection and unsafe advice.
 - Make AI use optional and explain what data leaves the app/backend boundary. Label generated text, cite the source period/metrics, surface uncertainty, and retain a non-AI path.
 - The first version must not write to health, nutrition, goals, or workout records. Later proposals may use a small allowlisted set of read tools. Any mutation must be previewed and explicitly confirmed by the user.

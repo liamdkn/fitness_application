@@ -27,6 +27,8 @@ struct StartWorkoutView: View {
     @State private var weeklyRunKm = 0.0
     @State private var weeklyPlannedKm: Double?
     @State private var runningPlanWeek: Int?
+    /// This week's planned runs, so a run day's card can say what the run is.
+    @State private var weekPlannedRuns: [PlannedRun] = []
     private let runningPlanRepository = RunningPlanRepository()
     @State private var preferredGymId: UUID?
     /// Each workout day's exercise names, in position order - what a
@@ -52,9 +54,10 @@ struct StartWorkoutView: View {
         return weeklySchedule.sorted { (order.firstIndex(of: $0.weekday) ?? 0) < (order.firstIndex(of: $1.weekday) ?? 0) }
     }
 
-    /// An active-rest day's own card already has a Start Cardio Session
-    /// button (with that day's cardio type chosen), so the Cardio card skips
-    /// its own rather than showing two.
+    /// An active-rest day's own card either has a Start Cardio Session button
+    /// (with that day's cardio type chosen) or, for a run day, none at all
+    /// (the Watch tracks runs), so the Cardio card skips its own either way
+    /// rather than showing a second, confusing one.
     private var selectedDayOffersCardio: Bool {
         let weekday = selectedWeekday ?? todaysWeekday
         return activeWorkout == nil && weeklySchedule.contains { $0.weekday == weekday && $0.dayType == .activeRest }
@@ -134,6 +137,7 @@ struct StartWorkoutView: View {
                                         isCompleted: completedWeekdays.contains(slot.weekday),
                                         isStarting: isStarting,
                                         isStartingOpen: isStartingOpen,
+                                        plannedRun: weekPlannedRuns.first { Calendar.current.component(.weekday, from: $0.day) == slot.weekday },
                                         onStartWorkout: { day in Task { await startWorkout(routineDayId: day.id) } },
                                         onStartOpenWorkout: { Task { await startOpenWorkout() } }
                                     )
@@ -372,6 +376,7 @@ struct StartWorkoutView: View {
                 .filter { $0.day >= weekStart && $0.day < weekEnd }
                 .compactMap(\.targetDistanceKm)
                 .reduce(0, +)
+            weekPlannedRuns = planned.filter { $0.day >= weekStart && $0.day < weekEnd && $0.runType != .rest }
         }
     }
 
@@ -422,6 +427,8 @@ private struct WeekDayCard: View {
     let isCompleted: Bool
     let isStarting: Bool
     let isStartingOpen: Bool
+    /// The run planned for this weekday, shown on a run day.
+    let plannedRun: PlannedRun?
     let onStartWorkout: (RoutineDay) -> Void
     let onStartOpenWorkout: () -> Void
 
@@ -484,14 +491,30 @@ private struct WeekDayCard: View {
                 } trailing: {
                     EmptyView()
                 }
-                Text("Active rest day")
+                Text(slot.cardioType == .outdoorRun ? "Run day" : "Active rest day")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                // Not gated to today - a scheduled run/walk is just as
-                // startable a day early or a day late as a workout is (see
-                // `actionRow`'s own reasoning below), only actually blocked
-                // while another workout is already in progress.
-                if !hasActiveWorkout {
+                if slot.cardioType == .outdoorRun {
+                    // Runs are recorded on the Apple Watch and imported, so there's
+                    // no session to start here - cardio sessions are for incline
+                    // walks, the stairmaster and the like.
+                    if let plannedRun {
+                        Text(plannedRun.targetLabel)
+                            .font(.subheadline.weight(.semibold))
+                        if let structure = plannedRun.structureLine {
+                            Text(structure)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Label("Track it on your Apple Watch", systemImage: "applewatch")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else if !hasActiveWorkout {
+                    // Not gated to today - a scheduled walk or stairmaster session is just as
+                    // startable a day early or a day late as a workout is (see
+                    // `actionRow`'s own reasoning below), only actually blocked
+                    // while another workout is already in progress.
                     NavigationLink {
                         StartCardioSessionView(initialCardioType: slot.cardioType ?? .inclineTreadmill)
                     } label: {

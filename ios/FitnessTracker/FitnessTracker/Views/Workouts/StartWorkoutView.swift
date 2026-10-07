@@ -242,16 +242,7 @@ struct StartWorkoutView: View {
             }
             .appScreen()
             .navigationTitle("Training")
-            .toolbar {
-                if routine != nil {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink("Edit") {
-                            RoutineEditorView()
-                        }
-                        .appToolbarTint()
-                    }
-                }
-            }
+            .navigationBarTitleDisplayMode(.inline)
             // `.onAppear`, not `.task` - this view stays mounted as the Train
             // tab's root, so `.task` would only ever fire once. `.onAppear`
             // re-fires whenever a pushed screen (a routine day, an active

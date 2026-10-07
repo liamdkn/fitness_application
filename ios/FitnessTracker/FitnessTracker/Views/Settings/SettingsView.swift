@@ -39,6 +39,9 @@ struct SettingsView: View {
                 .listRowBackground(AppRowBackground())
 
                 Section("Training") {
+                    NavigationLink("Edit Split") {
+                        RoutineEditorView()
+                    }
                     NavigationLink("Gyms") {
                         GymsSettingsView()
                     }
@@ -157,6 +160,7 @@ struct SettingsView: View {
             }
             .appScreen()
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .task { await loadPreferences() }
         }
     }

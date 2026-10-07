@@ -152,6 +152,7 @@ struct DashboardView: View {
             }
             .appScreen()
             .navigationTitle("Dashboard")
+            .navigationBarTitleDisplayMode(.inline)
             .task {
                 await viewModel.load(date: selectedDate)
                 await viewModel.loadWeightGlance()

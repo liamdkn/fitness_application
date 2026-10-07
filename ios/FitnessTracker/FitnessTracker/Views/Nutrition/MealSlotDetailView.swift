@@ -504,6 +504,8 @@ private struct EditMealEntryQuantityView: View {
     /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
     @State private var skipConversion = false
     @State private var scale = BluetoothScale.shared
+    /// "Use the scale" was tapped and the amount not changed since.
+    @State private var usedScale = false
     private let info: EditableFoodInfo?
 
     init(
@@ -564,6 +566,7 @@ private struct EditMealEntryQuantityView: View {
                                     inputMode = .amount
                                 }
                                 quantityText = Self.formattedQuantity(onScale)
+                                usedScale = true
                             } label: {
                                 Label("Use the scale: \(Self.formattedQuantity(onScale)) \(info.servingUnit)", systemImage: "scalemass")
                             }
@@ -643,6 +646,7 @@ private struct EditMealEntryQuantityView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
                         if let quantity {
+                            if usedScale { scale.tareScale() }
                             onConfirm(quantity)
                             if showsEatenTime { saveEatenTime() }
                             dismiss()

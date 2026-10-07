@@ -173,6 +173,10 @@ struct IcomonKitchenScaleTests {
         #expect(ScaleDecoding.hex(ScaleDecoding.icomonHandshake) == "AC 42 00 02 00 A0 00 D1 73")
     }
 
+    @Test func tareCommandMatchesTheDocumentedFrame() {
+        #expect(ScaleDecoding.hex(ScaleDecoding.icomonTare) == "AC 42 00 02 00 00 00 D2 D4")
+    }
+
     @Test func readHistoryCommandMatchesTheDocumentedFrame() {
         #expect(ScaleDecoding.hex(ScaleDecoding.icomonCommand(payload: [0x00, 0x00], command: 0xD4)) == "AC 42 00 00 D4 D4")
     }

@@ -143,10 +143,7 @@ struct LiveWeighView: View {
 
                 Section {
                     Button("Tare") {
-                        // Count from whatever is on the scale now (same as pressing TARE on it, without logging).
-                        baseline = currentMass
-                        ready = true
-                        message = "Tared."
+                        Task { await tareScale() }
                     }
                 } footer: {
                     Text("Zeroes the count here without logging anything.")
@@ -380,6 +377,16 @@ struct LiveWeighView: View {
         baseline = currentMass
         ready = currentMass >= 1
         pendingGrams = nil
+    }
+
+    /// Zeroes the scale itself and counts from there. If it doesn't zero (no scale,
+    /// or it ignored the command), counting starts from whatever is on it now.
+    private func tareScale() async {
+        scale.tareScale()
+        if scale.connectedName != nil { try? await Task.sleep(nanoseconds: 1_200_000_000) }
+        baseline = currentMass
+        ready = true
+        message = "Tared."
     }
 
     /// TARE was pressed on the scale; `massBefore` is what it held just before zeroing.

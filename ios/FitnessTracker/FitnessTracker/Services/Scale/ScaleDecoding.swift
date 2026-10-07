@@ -53,6 +53,10 @@ nonisolated enum ScaleDecoding {
     /// It is `AC 42 00 04 00 00 00 00 01 DB E0`.
     static let icomonUserInfo = icomonCommand(payload: [0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01], command: 0xDB)
 
+    /// Zeroes the scale, as pressing TARE does: the library's tare setting
+    /// (command 0xD2, type 0). It is `AC 42 00 02 00 00 00 D2 D4`.
+    static var icomonTare: Data { icomonCommand(payload: [0x00, 0x02, 0x00, 0x00, 0x00], command: 0xD2) }
+
     struct IcomonWeight: Equatable {
         /// Grams (the scale reports milligrams).
         let grams: Double

@@ -510,7 +510,11 @@ struct LogFoodQuantityView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Add") {
-                        if let quantity { onConfirm(food, quantity) }
+                        if let quantity {
+                            // The amount came from the scale and wasn't edited: zero it for the next thing.
+                            if followingScale { scale.tareScale() }
+                            onConfirm(food, quantity)
+                        }
                     }
                     .disabled(!(quantity.map { $0 > 0 } ?? false))
                     .appToolbarTint()

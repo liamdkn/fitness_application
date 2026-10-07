@@ -61,6 +61,8 @@ final class BluetoothScale: NSObject {
     var tarePresses = 0
     private var massBeforeTare: Double?
     private var inTare = false
+    /// A tare the app asked for is expected to flag the scale's data too; it isn't a button press to act on.
+    private var appTareUntil: Date?
 
     private var central: CBCentralManager!
     private var peripherals: [UUID: CBPeripheral] = [:]
@@ -160,6 +162,14 @@ final class BluetoothScale: NSObject {
         let type: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
         connected.writeValue(data, for: characteristic, type: type)
         append("Sent: \(ScaleDecoding.hex(data))")
+    }
+
+    /// Zeroes the scale from the app, the same as pressing TARE on it. Does nothing
+    /// if no scale is connected.
+    func tareScale() {
+        guard connectedName != nil else { return }
+        appTareUntil = Date().addingTimeInterval(3)
+        write(ScaleDecoding.icomonTare)
     }
 
     /// The reply this family of kitchen scale expects after you subscribe to its
@@ -383,8 +393,12 @@ extension BluetoothScale: CBPeripheralDelegate {
                     // First flagged frame = the press. The weight before it is the amount.
                     if !self.inTare {
                         self.inTare = true
-                        self.tarePresses += 1
-                        self.onTare?(self.massBeforeTare ?? 0)
+                        if let until = self.appTareUntil, Date() < until {
+                            // The app's own tare - nothing to log.
+                        } else {
+                            self.tarePresses += 1
+                            self.onTare?(self.massBeforeTare ?? 0)
+                        }
                     }
                 } else {
                     self.inTare = false

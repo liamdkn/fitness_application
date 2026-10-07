@@ -158,9 +158,6 @@ struct MealSlotDetailView: View {
                 onRemove: {
                     Task { await viewModel.deleteEntry(slotEntry.entry) }
                 },
-                onSetEatenAt: { time in
-                    Task { await viewModel.updateEatenAt(slotEntry.entry, eatenAt: time) }
-                },
                 onAddSalt: { grams in
                     Task {
                         // Salt is a food of its own (per 100 g), logged to this meal.
@@ -177,6 +174,42 @@ struct MealSlotDetailView: View {
 
     /// The meal's totals up top - calories and the carbs/fat/protein split -
     /// so the whole meal reads at a glance before the individual foods.
+    /// When this meal was eaten: one time for the whole meal.
+    private var eatenAtRow: some View {
+        let time = viewModel.mealEatenAt(slot.id)
+        return HStack {
+            Label("Eaten at", systemImage: "clock")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if let time {
+                DatePicker("Eaten at", selection: Binding(
+                    get: { time },
+                    set: { newTime in Task { await viewModel.setMealEatenAt(onMealDay(newTime), slotId: slot.id) } }
+                ), displayedComponents: .hourAndMinute)
+                .labelsHidden()
+                Button {
+                    Task { await viewModel.setMealEatenAt(nil, slotId: slot.id) }
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Clear the time")
+            } else {
+                Button("Set time") {
+                    Task { await viewModel.setMealEatenAt(onMealDay(Date()), slotId: slot.id) }
+                }
+            }
+        }
+    }
+
+    /// An hour and minute put on the meal's own day.
+    private func onMealDay(_ time: Date) -> Date {
+        let calendar = Calendar.current
+        let parts = calendar.dateComponents([.hour, .minute], from: time)
+        return calendar.date(bySettingHour: parts.hour ?? 0, minute: parts.minute ?? 0, second: 0, of: date) ?? time
+    }
+
     private var headerCard: some View {
         let calories = group?.totalCalories ?? 0
         let carbs = group?.totalCarbsG ?? 0
@@ -193,6 +226,7 @@ struct MealSlotDetailView: View {
                 }
                 Spacer(minLength: 0)
             }
+            if !entries.isEmpty { eatenAtRow }
             let sodium = group?.totalSodiumMg ?? 0
             if sodium > 0 {
                 HStack(spacing: 18) {
@@ -324,9 +358,6 @@ struct MealSlotDetailView: View {
     private func subtitle(for slotEntry: MealSlotEntry) -> String {
         var parts = [slotEntry.amountLabel]
         if let brand = slotEntry.brand, !brand.isEmpty { parts.append(brand) }
-        if let eatenAt = slotEntry.entry.eatenAt {
-            parts.append(eatenAt.formatted(date: .omitted, time: .shortened))
-        }
         return parts.joined(separator: " \u{00b7} ")
     }
 }
@@ -426,12 +457,9 @@ private struct EditMealEntryQuantityView: View {
     let entry: MealSlotEntry
     let onConfirm: (Double) -> Void
     let onRemove: () -> Void
-    let onSetEatenAt: (Date?) -> Void
     let onAddSalt: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var hasEatenTime: Bool
-    @State private var eatenTime: Date
     @State private var saltText = ""
     @State private var quantityText: String
     @State private var inputMode: QuantityInputMode = .servings
@@ -441,15 +469,11 @@ private struct EditMealEntryQuantityView: View {
         entry: MealSlotEntry,
         onConfirm: @escaping (Double) -> Void,
         onRemove: @escaping () -> Void,
-        onSetEatenAt: @escaping (Date?) -> Void,
         onAddSalt: @escaping (Double) -> Void
     ) {
         self.entry = entry
         self.onConfirm = onConfirm
         self.onRemove = onRemove
-        self.onSetEatenAt = onSetEatenAt
-        _hasEatenTime = State(initialValue: entry.entry.eatenAt != nil)
-        _eatenTime = State(initialValue: entry.entry.displayTime)
         self.onAddSalt = onAddSalt
         self.info = EditableFoodInfo(entry)
         _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity))
@@ -512,17 +536,6 @@ private struct EditMealEntryQuantityView: View {
                     }
                 }
                 Section {
-                    Toggle("Time eaten recorded", isOn: $hasEatenTime)
-                    if hasEatenTime {
-                        DatePicker("Eaten at", selection: $eatenTime, displayedComponents: .hourAndMinute)
-                    }
-                } header: {
-                    Text("When")
-                } footer: {
-                    Text("The time you actually ate it, for lining meals up against other readings. Foods logged as you eat them get the time automatically.")
-                }
-                .listRowBackground(AppRowBackground())
-                Section {
                     HStack {
                         Text("Salt added")
                         Spacer()
@@ -564,7 +577,6 @@ private struct EditMealEntryQuantityView: View {
                     Button("Save") {
                         if let quantity {
                             onConfirm(quantity)
-                            saveEatenTime()
                             dismiss()
                         }
                     }
@@ -572,22 +584,6 @@ private struct EditMealEntryQuantityView: View {
                     .appToolbarTint()
                 }
             }
-        }
-    }
-
-    /// The picker's hour and minute, put on the entry's own day.
-    private func saveEatenTime() {
-        let original = entry.entry.eatenAt
-        if !hasEatenTime {
-            if original != nil { onSetEatenAt(nil) }
-            return
-        }
-        let calendar = Calendar.current
-        let day = DateFormatting.date(fromISODate: entry.entry.date) ?? entry.entry.displayTime
-        let time = calendar.dateComponents([.hour, .minute], from: eatenTime)
-        guard let combined = calendar.date(bySettingHour: time.hour ?? 0, minute: time.minute ?? 0, second: 0, of: day) else { return }
-        if original == nil || abs(combined.timeIntervalSince(original ?? combined)) >= 60 {
-            onSetEatenAt(combined)
         }
     }
 

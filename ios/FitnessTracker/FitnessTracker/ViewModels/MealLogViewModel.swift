@@ -142,9 +142,11 @@ final class MealLogViewModel: ObservableObject {
 
     func logFood(_ food: Food, quantity: Double, mealSlotId: UUID, date: Date) async {
         do {
+            let times = mealTimes()
             let entry = try offlineQueue.addFoodEntry(date: date, mealSlotId: mealSlotId, foodId: food.id, quantity: quantity)
             foodsById[food.id] = food
             entries.append(entry)
+            await align([entry], to: times)
             refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
@@ -153,9 +155,11 @@ final class MealLogViewModel: ObservableObject {
 
     func logRecipe(_ recipe: Recipe, quantity: Double, mealSlotId: UUID, date: Date) async {
         do {
+            let times = mealTimes()
             let entry = try offlineQueue.addRecipeEntry(date: date, mealSlotId: mealSlotId, recipeId: recipe.id, quantity: quantity)
             recipesById[recipe.id] = recipe
             entries.append(entry)
+            await align([entry], to: times)
             refreshWidgets()
         } catch {
             errorMessage = error.localizedDescription
@@ -195,16 +199,48 @@ final class MealLogViewModel: ObservableObject {
         }
     }
 
+    /// When each meal was eaten, as recorded on its foods (they all share it).
+    func mealEatenAt(_ slotId: UUID) -> Date? {
+        entries.filter { $0.mealSlotId == slotId }.compactMap(\.eatenAt).min()
+    }
+
+    private func mealTimes() -> [UUID: Date] {
+        var times: [UUID: Date] = [:]
+        for entry in entries {
+            guard let eatenAt = entry.eatenAt else { continue }
+            times[entry.mealSlotId] = min(times[entry.mealSlotId] ?? eatenAt, eatenAt)
+        }
+        return times
+    }
+
+    /// Sets (or clears) the time a whole meal was eaten: every food in it carries the same time.
+    func setMealEatenAt(_ time: Date?, slotId: UUID) async {
+        for entry in entries where entry.mealSlotId == slotId && entry.eatenAt != time {
+            await updateEatenAt(entry, eatenAt: time)
+        }
+    }
+
+    /// Foods added to a meal that already has a time take that time, rather than the moment they were logged.
+    private func align(_ new: [MealEntry], to times: [UUID: Date]) async {
+        for entry in new {
+            if let time = times[entry.mealSlotId], entry.eatenAt != time {
+                await updateEatenAt(entry, eatenAt: time)
+            }
+        }
+    }
+
     /// Copies a day's entries onto another day. Goes through the offline
     /// queue like any single log, so it works with no connection (the source
     /// day is read local-first too).
     func repeatDay(from sourceDate: Date, to targetDate: Date) async {
         do {
             let source = try await offlineQueue.fetchEntries(date: sourceDate)
+            let times = mealTimes()
             let copied = try source.map {
                 try queueEntry(date: targetDate, mealSlotId: $0.mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
             }
             entries.append(contentsOf: copied)
+            await align(copied, to: times)
             await fetchMissingReferences(for: copied)
             refreshWidgets()
         } catch {
@@ -214,10 +250,12 @@ final class MealLogViewModel: ObservableObject {
 
     func applySavedMeal(_ items: [SavedMealItem], mealSlotId: UUID, date: Date) async {
         do {
+            let times = mealTimes()
             let applied = try items.map {
                 try queueEntry(date: date, mealSlotId: mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
             }
             entries.append(contentsOf: applied)
+            await align(applied, to: times)
             await fetchMissingReferences(for: applied)
             refreshWidgets()
         } catch {
@@ -241,10 +279,12 @@ final class MealLogViewModel: ObservableObject {
     /// no connection and editing the copies leaves the originals alone.
     func copyEntries(_ source: [MealEntry], mealSlotId: UUID, date: Date) async {
         do {
+            let times = mealTimes()
             let copied = try source.map {
                 try queueEntry(date: date, mealSlotId: mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
             }
             entries.append(contentsOf: copied)
+            await align(copied, to: times)
             await fetchMissingReferences(for: copied)
             refreshWidgets()
         } catch {
@@ -260,10 +300,12 @@ final class MealLogViewModel: ObservableObject {
 
     func applySavedDay(_ items: [SavedDayItem], date: Date) async {
         do {
+            let times = mealTimes()
             let applied = try items.map {
                 try queueEntry(date: date, mealSlotId: $0.mealSlotId, foodId: $0.foodId, recipeId: $0.recipeId, quantity: $0.quantity)
             }
             entries.append(contentsOf: applied)
+            await align(applied, to: times)
             await fetchMissingReferences(for: applied)
             refreshWidgets()
         } catch {

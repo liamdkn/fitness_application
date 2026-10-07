@@ -543,7 +543,7 @@ private struct EditMealEntryQuantityView: View {
                     Section {
                         Picker("Enter as", selection: $inputMode) {
                             Text("Servings").tag(QuantityInputMode.servings)
-                            Text(info.servingUnit.capitalized).tag(QuantityInputMode.amount)
+                            Text(["g", "ml"].contains(info.servingUnit.lowercased()) ? info.servingUnit.lowercased() : info.servingUnit.capitalized).tag(QuantityInputMode.amount)
                         }
                         .pickerStyle(.segmented)
                         .onChange(of: inputMode) { oldMode, newMode in

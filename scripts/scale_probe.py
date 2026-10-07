@@ -20,6 +20,10 @@ more) next to the scale and follow the on-screen prompts:
     python scale_probe.py --raw     # plain Bluetooth: print every message
     python scale_probe.py --probe   # plain Bluetooth: try "set user" commands, one at a time,
                                     # with the weight left ON the scale
+    python scale_probe.py --unit 5  # start the weight stream, then ask the scale to switch its
+                                    # display unit (0 g, 1 ml, 2 lb:oz, 3 oz, 4 mg, 5 ml milk,
+                                    # 6 fl oz, 7 fl oz milk) and print what it does
+    python scale_probe.py --tare    # the same with the tare command (leave something on the scale)
 
 Send back everything it prints.
 """
@@ -160,7 +164,59 @@ async def probe():
         print(f"\nDone. Messages received on FFB2: {count}")
 
 
+UNIT_NAMES = {0: "g", 1: "ml", 2: "lb:oz", 3: "oz", 4: "mg", 5: "ml milk", 6: "fl oz", 7: "fl oz milk"}
+USER_INFO = frame(split(bytes.fromhex("00000001")), 0xDB)
+
+
+def setting(kind: int, param: int) -> bytes:
+    """A D2 setting command: type 0 tare, type 2 unit."""
+    return frame(bytes([0x00, 0x02, 0x00, kind, param]), 0xD2)
+
+
+def describe(data: bytes) -> str:
+    """One line for a message from the scale: its type, and for live weight the unit and grams."""
+    if len(data) < 5 or data[0] != 0xAC:
+        return data.hex(" ")
+    kind = data[-2]
+    text = f"type {kind:02X}"
+    body = data[2:-2]
+    if kind == 0xA6 and len(body) >= 8:
+        d = body[3:]
+        unit = d[1] >> 4
+        grams = ((d[2] << 16) | (d[3] << 8) | d[4]) / 1000
+        text += f" weight {grams:g} g, scale shows {UNIT_NAMES.get(unit, unit)}, flags {d[0]:02X}"
+    return f"{text}   [{data.hex(' ')}]"
+
+
+async def command(name: str, data: bytes):
+    device = await find()
+    started = time.time()
+
+    def show(_, message: bytearray):
+        print(f"[{time.time() - started:5.1f}s]   <- {describe(bytes(message))}", flush=True)
+
+    async with BleakClient(device) as client:
+        await client.start_notify(NOTIFY, show)
+        print("Connected. Leave something on the scale.\n")
+        await asyncio.sleep(2)
+        await client.write_gatt_char(WRITE, HANDSHAKE, response=True)
+        await asyncio.sleep(1)
+        await client.write_gatt_char(WRITE, USER_INFO, response=True)
+        await asyncio.sleep(4)
+        print(f"\n[{time.time() - started:5.1f}s] -> {name}: {data.hex(' ')}\n", flush=True)
+        await client.write_gatt_char(WRITE, data, response=True)
+        await asyncio.sleep(8)
+        print("\nDone. Did the scale's own display change? Say what it showed.")
+
+
 if __name__ == "__main__":
+    if "--unit" in sys.argv:
+        code = int(sys.argv[sys.argv.index("--unit") + 1])
+        asyncio.run(command(f"set unit {code} ({UNIT_NAMES.get(code, '?')})", setting(2, code)))
+        sys.exit()
+    if "--tare" in sys.argv:
+        asyncio.run(command("tare", setting(0, 0)))
+        sys.exit()
     if "--probe" in sys.argv:
         asyncio.run(probe())
         sys.exit()

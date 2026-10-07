@@ -422,7 +422,7 @@ struct LogFoodQuantityView: View {
                     }
                     Picker("Enter as", selection: $inputMode) {
                         Text("Servings").tag(QuantityInputMode.servings)
-                        Text(food.servingUnit.capitalized).tag(QuantityInputMode.amount)
+                        Text(["g", "ml"].contains(food.servingUnit.lowercased()) ? food.servingUnit.lowercased() : food.servingUnit.capitalized).tag(QuantityInputMode.amount)
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: inputMode) { oldMode, newMode in

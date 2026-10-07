@@ -393,7 +393,7 @@ struct LogFoodQuantityView: View {
     /// What's on the scale, in this food's unit (g or ml), when a scale is connected
     /// and holding something. `nil` for foods counted in anything else.
     private var scaleAmount: Double? {
-        guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
+        guard let mass = scale.live, mass >= 1,
               let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: food.servingUnit, scaleUnit: scale.unit) else { return nil }
         return (amount * 10).rounded() / 10
     }
@@ -523,7 +523,7 @@ struct LogFoodQuantityView: View {
             .task {
                 scale.match(food)
                 await loadDefaults()
-                if scaleAmount != nil { useScale() }
+                if scale.connectedName != nil, scaleAmount != nil { useScale() }
             }
             .onChange(of: scale.live) {
                 if followingScale, let amount = scaleAmount, inputMode == .amount {
@@ -560,7 +560,8 @@ struct LogFoodQuantityView: View {
             inputMode = .amount
         }
         quantityText = formattedQuantity(amount)
-        followingScale = true
+        // A remembered weight doesn't move, so there's nothing to follow (or to tare afterwards).
+        followingScale = scale.connectedName != nil
     }
 
     private func convertQuantityText(from oldMode: QuantityInputMode, to newMode: QuantityInputMode) {

@@ -45,6 +45,8 @@ final class BluetoothScale: NSObject {
     var pairedName: String?
     private(set) var pairedId: UUID?
     var isPaired: Bool { pairedId != nil }
+    // When the connection drops, `live`, `grams` and `unit` are left as they were, so the last
+    // weight can still be used after the scale times out or is switched off.
     var isScanning = false
     /// Messages received on the scale's weight channel since connecting.
     var weightChannelPackets = 0
@@ -273,9 +275,7 @@ extension BluetoothScale: CBCentralManagerDelegate {
     nonisolated func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         Task { @MainActor in
             self.connectedName = nil
-            self.grams = nil
-            self.live = nil
-            self.unit = nil
+            // The last weight stays: you may have walked off with food still on the scale.
             if self.manualDisconnect {
                 self.status = "Disconnected."
             } else {

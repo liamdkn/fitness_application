@@ -691,7 +691,7 @@ private struct EditMealEntryQuantityView: View {
     }
 
     private func scaleAmount(_ info: EditableFoodInfo) -> Double? {
-        guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
+        guard let mass = scale.live, mass >= 1,
               let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: info.servingUnit, scaleUnit: scale.unit) else { return nil }
         return (amount * 10).rounded() / 10
     }

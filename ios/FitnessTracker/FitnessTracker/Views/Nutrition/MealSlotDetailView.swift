@@ -638,6 +638,7 @@ private struct EditMealEntryQuantityView: View {
             .appScreen()
             .navigationTitle(info?.name ?? entry.name)
             .scrollDismissesKeyboard(.interactively)
+            .onAppear { matchScale() }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") { dismiss() }
@@ -676,6 +677,10 @@ private struct EditMealEntryQuantityView: View {
     }
 
     /// What's on the scale now, in this food's unit (g or ml), when a scale is connected and holding something.
+    private func matchScale() {
+        if let food = entry.food { scale.match(food) }
+    }
+
     private func scaleAmount(_ info: EditableFoodInfo) -> Double? {
         guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
               let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: info.servingUnit, scaleUnit: scale.unit) else { return nil }

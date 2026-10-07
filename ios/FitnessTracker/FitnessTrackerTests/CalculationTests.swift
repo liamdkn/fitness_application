@@ -173,6 +173,17 @@ struct IcomonKitchenScaleTests {
         #expect(ScaleDecoding.hex(ScaleDecoding.icomonHandshake) == "AC 42 00 02 00 A0 00 D1 73")
     }
 
+    @Test func milkMillilitreUnitCommandMatchesTheDocumentedFrame() {
+        #expect(ScaleDecoding.hex(ScaleDecoding.icomonUnit(5)) == "AC 42 00 02 00 02 05 D2 DB")
+    }
+
+    @Test func scaleUnitFollowsTheFood() {
+        #expect(ScaleDecoding.preferredScaleUnit(foodName: "Whole Milk", foodUnit: "ml") == 5)
+        #expect(ScaleDecoding.preferredScaleUnit(foodName: "Orange Juice", foodUnit: "ml") == 1)
+        #expect(ScaleDecoding.preferredScaleUnit(foodName: "Oats", foodUnit: "g") == 0)
+        #expect(ScaleDecoding.preferredScaleUnit(foodName: "Banana", foodUnit: "medium") == nil)
+    }
+
     @Test func tareCommandMatchesTheDocumentedFrame() {
         #expect(ScaleDecoding.hex(ScaleDecoding.icomonTare) == "AC 42 00 02 00 00 00 D2 D4")
     }

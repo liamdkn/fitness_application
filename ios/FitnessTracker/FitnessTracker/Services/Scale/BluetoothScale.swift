@@ -61,6 +61,7 @@ final class BluetoothScale: NSObject {
     var tarePresses = 0
     private var massBeforeTare: Double?
     private var inTare = false
+    private var lastUnitRequest: (code: Int, time: Date)?
     /// A tare the app asked for is expected to flag the scale's data too; it isn't a button press to act on.
     private var appTareUntil: Date?
 
@@ -170,6 +171,19 @@ final class BluetoothScale: NSObject {
         guard connectedName != nil else { return }
         appTareUntil = Date().addingTimeInterval(3)
         write(ScaleDecoding.icomonTare)
+    }
+
+    /// Switches the scale's display to the unit that suits `food`: grams, milk ml,
+    /// or plain ml. Does nothing if it's already showing it, or the food isn't
+    /// counted in g or ml.
+    func match(_ food: Food) {
+        guard connectedName != nil,
+              let code = ScaleDecoding.preferredScaleUnit(foodName: food.name, foodUnit: food.servingUnit),
+              unit != code else { return }
+        // Don't repeat the request while the scale is still catching up.
+        if let last = lastUnitRequest, last.code == code, Date().timeIntervalSince(last.time) < 3 { return }
+        lastUnitRequest = (code, Date())
+        write(ScaleDecoding.icomonUnit(code))
     }
 
     /// The reply this family of kitchen scale expects after you subscribe to its

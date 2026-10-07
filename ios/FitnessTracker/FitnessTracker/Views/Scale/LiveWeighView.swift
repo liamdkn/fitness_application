@@ -186,6 +186,10 @@ struct LiveWeighView: View {
                 Text("How much \(food.name) are you aiming for, in \(food.servingUnit)?")
             }
             .sensoryFeedback(.success, trigger: added.count)
+            .onChange(of: activeFood?.id) {
+                // Weighing milk puts the scale on milk ml; dry foods put it back on grams.
+                if let food = activeFood { scale.match(food) }
+            }
             .onChange(of: scoopMode) { _, on in
                 // Whatever is on the scale now (the full tub) is the starting point.
                 restart()

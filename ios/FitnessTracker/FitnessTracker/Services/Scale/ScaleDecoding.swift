@@ -57,6 +57,22 @@ nonisolated enum ScaleDecoding {
     /// (command 0xD2, type 0). It is `AC 42 00 02 00 00 00 D2 D4`.
     static var icomonTare: Data { icomonCommand(payload: [0x00, 0x02, 0x00, 0x00, 0x00], command: 0xD2) }
 
+    /// Sets the scale's display unit (the library's unit setting: command 0xD2,
+    /// type 2). For milk ml (code 5) it is `AC 42 00 02 00 02 05 D2 DB`.
+    static func icomonUnit(_ code: Int) -> Data {
+        icomonCommand(payload: [0x00, 0x02, 0x00, 0x02, UInt8(truncatingIfNeeded: code)], command: 0xD2)
+    }
+
+    /// The scale unit that suits a food: grams for a food in g, milk ml for milk,
+    /// plain ml for any other liquid counted in ml. `nil` for foods not counted by weight or volume.
+    static func preferredScaleUnit(foodName: String, foodUnit: String) -> Int? {
+        switch foodUnit.lowercased() {
+        case "g": 0
+        case "ml": foodName.localizedCaseInsensitiveContains("milk") ? 5 : 1
+        default: nil
+        }
+    }
+
     struct IcomonWeight: Equatable {
         /// Grams (the scale reports milligrams).
         let grams: Double

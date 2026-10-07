@@ -521,6 +521,7 @@ struct LogFoodQuantityView: View {
                 }
             }
             .task {
+                scale.match(food)
                 await loadDefaults()
                 if scaleAmount != nil { useScale() }
             }

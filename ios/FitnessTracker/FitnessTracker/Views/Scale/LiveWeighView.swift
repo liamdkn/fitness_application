@@ -402,6 +402,12 @@ struct LiveWeighView: View {
             message = "Zeroed. Choose what you're adding, pour, then press TARE to log it."
             return
         }
+        // Counting from a bowl that was never tared: a drop to zero could as well be
+        // the bowl lifted off, so it only zeroes.
+        guard baseline == 0 else {
+            message = "Zeroed."
+            return
+        }
         if mode == .open && scoopMode {
             message = "TARE zeroed the scale. When scooping, put the container back and hold the button to log instead."
             return

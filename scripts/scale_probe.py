@@ -194,6 +194,8 @@ def describe(data: bytes) -> str:
         d = body[3:]
         unit = d[1] >> 4
         grams = ((d[2] << 16) | (d[3] << 8) | d[4]) / 1000
+        if d[0] & 0x80:
+            grams = -grams  # 0x80 is the minus sign (a bowl lifted off after a tare)
         food_id = int.from_bytes(d[5:9], "big")
         text += f" weight {grams:g} g, scale shows {UNIT_NAMES.get(unit, unit)}, flags {d[0]:02X}"
         if food_id:

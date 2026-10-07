@@ -59,8 +59,7 @@ final class BluetoothScale: NSObject {
     /// How many TARE presses have been seen since connecting (shown in settings,
     /// to check the scale's button is being noticed).
     var tarePresses = 0
-    private var massBeforeTare: Double?
-    private var inTare = false
+    private var tareDetector = ScaleDecoding.TareDetector()
     private var lastUnitRequest: (code: Int, time: Date)?
     /// A tare the app asked for is expected to flag the scale's data too; it isn't a button press to act on.
     private var appTareUntil: Date?
@@ -252,8 +251,7 @@ extension BluetoothScale: CBCentralManagerDelegate {
             self.handshakeSent = false
             self.weightChannelPackets = 0
             self.tarePresses = 0
-            self.inTare = false
-            self.massBeforeTare = nil
+            self.tareDetector.reset()
             self.handshakeTask?.cancel()
             self.connectedName = peripheral.name ?? "Scale"
             self.status = "Connected. Looking at what it offers..."
@@ -377,21 +375,19 @@ extension BluetoothScale: CBPeripheralDelegate {
         var announced = false
         var moving: Double?
         var unitCode: Int?
-        var sampleStable = true
-        var tareFlag = false
+        var sampleSettled = true
         if uuid == CBUUID(string: "FFB2"), let icomon = ScaleDecoding.icomonFrame(data) {
             note = "  [type \(String(format: "%02X", icomon.type)), checksum \(icomon.checksumOK ? "ok" : "BAD")"
             if icomon.type == 0xA0 { announced = true; note += ", capabilities - replying" }
             if let weight = ScaleDecoding.icomonWeight(icomon) {
-                note += ", \(weight.stable ? "steady" : "moving")\(weight.isTare ? ", tare" : "")"
+                note += ", \(weight.settled ? "settled" : "changing")\(weight.isNegative ? ", negative" : "")"
                 // The weight is mass in every display unit, so g, ml, milk, oz and lb:oz
                 // all read the same here; only the unit label differs.
                 note += ", shows \(ScaleDecoding.unitName(Int(weight.unit)))"
                 moving = weight.grams
                 unitCode = Int(weight.unit)
-                sampleStable = weight.stable
-                tareFlag = weight.isTare
-                if weight.stable { decoded = weight.grams }
+                sampleSettled = weight.settled
+                if weight.settled && !weight.isNegative { decoded = weight.grams }
             }
             note += "]"
         }
@@ -399,8 +395,7 @@ extension BluetoothScale: CBPeripheralDelegate {
         let didAnnounce = announced
         let liveValue = moving
         let liveUnit = unitCode
-        let steady = sampleStable
-        let tareFrame = tareFlag
+        let steady = sampleSettled
         let onWeightChannel = uuid == CBUUID(string: "FFB2")
         let noteText = note
         Task { @MainActor in
@@ -413,20 +408,14 @@ extension BluetoothScale: CBPeripheralDelegate {
             if let liveUnit, self.unit != liveUnit { self.unit = liveUnit }
             if let decoded = finalDecoded, self.grams != decoded { self.grams = decoded }
             if let liveValue {
-                if tareFrame {
-                    // First flagged frame = the press. The weight before it is the amount.
-                    if !self.inTare {
-                        self.inTare = true
-                        if let until = self.appTareUntil, Date() < until {
-                            // The app's own tare - nothing to log.
-                        } else {
-                            self.tarePresses += 1
-                            self.onTare?(self.massBeforeTare ?? 0)
-                        }
+                // A drop from a settled weight straight to zero is a press of TARE.
+                if let before = self.tareDetector.feed(grams: liveValue, settled: steady) {
+                    if let until = self.appTareUntil, Date() < until {
+                        // The app's own tare - nothing to log.
+                    } else {
+                        self.tarePresses += 1
+                        self.onTare?(before)
                     }
-                } else {
-                    self.inTare = false
-                    self.massBeforeTare = liveValue
                 }
                 self.onSample?(liveValue, steady)
             } else if let decoded = finalDecoded {

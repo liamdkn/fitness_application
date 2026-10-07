@@ -207,26 +207,46 @@ struct IcomonKitchenScaleTests {
         #expect(settled55?.isMetric == true)
         #expect(parse("ac 42 00 0e 00 00 00 04 da 30 00 00 00 00 00 00 00 00 00 a6 c2")?.grams == 318.0)
         #expect(parse("ac 42 00 0e 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 a6 b4")?.grams == 0.0)
-        // The scale switched to millilitres: still usable. A negative/unstable flag is not.
+        // The scale switched to millilitres: still usable.
         #expect(parse("ac 42 00 0e 00 00 10 00 00 00 00 00 00 00 00 00 00 00 00 a6 c4")?.unit == 1)
-        #expect(parse("ac 42 00 0e 00 80 10 03 9d c8 00 00 00 00 00 00 00 00 00 a6 ac")?.stable == false)
+        #expect(settled55?.settled == true)
+        #expect(parse("ac 42 00 0e 00 00 00 04 da 30 00 00 00 00 00 00 00 00 00 a6 c2")?.settled == false)
+    }
+
+    @Test func aMinusSignIsNegativeWeightNotMovement() {
+        // Captured after a TARE with a bowl on: lifting the bowl gave a steady 0x80 reading of 16 g.
+        let lifted = ScaleDecoding.icomonFrame(Data("ac 42 00 0e 00 80 00 00 3e 80 00 00 00 00 00 00 00 00 00 a6 f2".split(separator: " ").compactMap { UInt8($0, radix: 16) }))
+        let weight = lifted.flatMap(ScaleDecoding.icomonWeight)
+        #expect(weight?.grams == -16.0)
+        #expect(weight?.isNegative == true)
+    }
+
+    @Test func tareIsADropFromASettledWeightStraightToZero() {
+        var detector = ScaleDecoding.TareDetector()
+        // From the capture: 17 g settled, then 0 g.
+        #expect(detector.feed(grams: 17, settled: false) == nil)
+        #expect(detector.feed(grams: 17, settled: true) == nil)
+        #expect(detector.feed(grams: 0, settled: true) == 17)
+        #expect(detector.feed(grams: 0, settled: false) == nil)
+    }
+
+    @Test func liftingAndReplacingABowlOnATaredScaleIsNotATare() {
+        var detector = ScaleDecoding.TareDetector()
+        // Bowl lifted: 0 then -16, steady. Put back: -6, -2, 0.
+        for (grams, settled) in [(0.0, true), (-16.0, false), (-16.0, true), (-6.0, false), (-2.0, false), (0.0, true)] {
+            #expect(detector.feed(grams: grams, settled: settled) == nil)
+        }
     }
 
     @Test func decodesALiveWeightFrame() {
-        // Header (length 14, seq 0), flags 0 (steady), unit 0, 99000 mg = 99 g, then the rest.
-        let payload: [UInt8] = [0x00, 0x0E, 0x00, 0x00, 0x00, 0x01, 0x82, 0xB8,
+        // Header (length 14, seq 0), flags 1 (settled), unit 0, 99000 mg = 99 g, then the rest.
+        let payload: [UInt8] = [0x00, 0x0E, 0x00, 0x01, 0x00, 0x01, 0x82, 0xB8,
                                 0, 0, 0, 0, 0, 0, 0, 0, 0x01]
         let frame = ScaleDecoding.icomonCommand(payload: payload, command: 0xA6)
         let parsed = ScaleDecoding.icomonFrame(frame)
         #expect(parsed?.checksumOK == true)
         #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.grams == 99.0)
-        #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.stable == true)
-    }
-
-    @Test func aMovingReadingIsNotStable() {
-        let payload: [UInt8] = [0x00, 0x0E, 0x00, 0x80, 0x00, 0x00, 0x27, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        let parsed = ScaleDecoding.icomonFrame(ScaleDecoding.icomonCommand(payload: payload, command: 0xA6))
-        #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.stable == false)
+        #expect(parsed.flatMap(ScaleDecoding.icomonWeight)?.settled == true)
     }
 
     @Test func foodInMillilitresFollowsTheScalesMilkSetting() {

@@ -74,21 +74,23 @@ nonisolated enum ScaleDecoding {
     }
 
     struct IcomonWeight: Equatable {
-        /// Grams (the scale reports milligrams).
+        /// Grams, negative when the scale shows a minus (the bowl lifted off after a tare).
+        /// The scale reports milligrams.
         let grams: Double
         /// The unit the scale is set to (0 grams, 1 millilitres, 2 pounds, 3 ounces, ...).
         let unit: UInt8
         /// Grams or millilitres (1 ml of water is 1 g): the units the app can use.
         var isMetric: Bool { unit == 0 || unit == 1 }
-        /// False while the reading is still moving.
-        let stable: Bool
-        let isTare: Bool
-        let isIdle: Bool
+        /// The reading has settled (the scale's own flag): false while it is still changing.
+        let settled: Bool
+        let isNegative: Bool
     }
 
     /// Reads a live-weight (0xA6) notification: after a 3-byte length/sequence
-    /// header come a flags byte (0x80 moving, 0x40 tare, 0x01 idle), the unit in
-    /// the high nibble of the next, then the weight in milligrams as 24 bits.
+    /// header come a flags byte (0x80 minus sign, 0x01 settled), the unit in the
+    /// high nibble of the next, then the weight in milligrams as 24 bits.
+    /// Checked against a KN2432LB: lifting a bowl off after a tare gave a steady
+    /// reading with 0x80 set and the weight's size; 0x40 never appeared, even for TARE.
     static func icomonWeight(_ frame: IcomonFrame) -> IcomonWeight? {
         guard frame.type == 0xA6 else { return nil }
         let body = frame.payload
@@ -96,11 +98,30 @@ nonisolated enum ScaleDecoding {
         guard data.count >= 5 else { return nil }
         let flags = data[0]
         let milligrams = Int(data[2]) << 16 | Int(data[3]) << 8 | Int(data[4])
+        let negative = flags & 0x80 != 0
+        let magnitude = (Double(milligrams) / 1000 * 10).rounded() / 10
         return IcomonWeight(
-            grams: (Double(milligrams) / 1000 * 10).rounded() / 10,
+            grams: negative ? -magnitude : magnitude,
             unit: data[1] >> 4,
-            stable: flags & 0x80 == 0, isTare: flags & 0x40 != 0, isIdle: flags & 0x01 != 0
+            settled: flags & 0x01 != 0,
+            isNegative: negative
         )
+    }
+
+    /// Spots a press of TARE on the scale. The scale doesn't flag it; it just drops
+    /// from a settled weight straight to zero. (Lifting a bowl off a tared scale goes
+    /// negative instead, and putting one back climbs up gradually, so neither looks like this.)
+    struct TareDetector {
+        private var previous: (grams: Double, settled: Bool)?
+
+        /// Feed each reading; returns the weight the scale held just before it zeroed, when it just did.
+        mutating func feed(grams: Double, settled: Bool) -> Double? {
+            defer { previous = (grams, settled) }
+            guard let previous, previous.settled, previous.grams >= 2, abs(grams) < 0.5 else { return nil }
+            return previous.grams
+        }
+
+        mutating func reset() { previous = nil }
     }
 
     /// The scale's display units, as the UNIT button cycles them. The weight on

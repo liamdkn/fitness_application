@@ -24,6 +24,8 @@ more) next to the scale and follow the on-screen prompts:
                                     # display unit (0 g, 1 ml, 2 lb:oz, 3 oz, 4 mg, 5 ml milk,
                                     # 6 fl oz, 7 fl oz milk) and print what it does
     python scale_probe.py --tare    # the same with the tare command (leave something on the scale)
+    python scale_probe.py --watch   # print only what changes (weight, unit, flags) and any other
+                                    # message, for 60 s: press TARE, lift things, press the buttons
     python scale_probe.py --show    # put a food on the scale's screen: name and macros per 100 g
                                     # (Oats by default; or --show "Whole Milk" 64 3.4 4.8 3.6
                                     #  = name, kcal, protein, carbs, fat). Press the scale's tick
@@ -258,7 +260,48 @@ async def show_food(name: str, kcal: float, protein: float, carbs: float, fat: f
         print("\nDone. Say what the screen showed: name, kcal, protein, carbs, fat - and whether they changed with the weight.")
 
 
+async def watch():
+    device = await find()
+    started = time.time()
+    last = {"key": None}
+    prompts = [
+        (6, ">>> PUT SOMETHING ON THE SCALE (a bowl or tin) and leave it <<<"),
+        (16, ">>> PRESS THE TARE BUTTON ON THE SCALE <<<"),
+        (26, ">>> LIFT THE THING OFF <<<"),
+        (34, ">>> PUT IT BACK ON <<<"),
+        (42, ">>> PRESS THE TICK BUTTON, then the arrows, one at a time <<<"),
+        (56, "Finishing ..."),
+    ]
+
+    def show(_, message: bytearray):
+        data = bytes(message)
+        line = describe(data)
+        if len(data) >= 5 and data[0] == 0xAC and data[-2] == 0xA6:
+            key = data[2:-1]  # everything that matters: weight, unit and flags
+            if key == last["key"]:
+                return
+            last["key"] = key
+        print(f"[{time.time() - started:5.1f}s]   <- {line}", flush=True)
+
+    async def prompt_loop():
+        for at, text in prompts:
+            await asyncio.sleep(max(0, started + at - time.time()))
+            print(f"\n[{time.time() - started:5.1f}s] {text}\n", flush=True)
+
+    async with BleakClient(device) as client:
+        await client.start_notify(NOTIFY, show)
+        await asyncio.sleep(2)
+        await client.write_gatt_char(WRITE, HANDSHAKE, response=True)
+        await asyncio.sleep(1)
+        await client.write_gatt_char(WRITE, USER_INFO, response=True)
+        await prompt_loop()
+        print("\nDone.")
+
+
 if __name__ == "__main__":
+    if "--watch" in sys.argv:
+        asyncio.run(watch())
+        sys.exit()
     if "--show" in sys.argv:
         rest = [a for a in sys.argv[sys.argv.index("--show") + 1:] if not a.startswith("--")]
         if len(rest) >= 5:

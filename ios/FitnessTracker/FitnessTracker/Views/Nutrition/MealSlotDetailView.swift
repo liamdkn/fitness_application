@@ -72,12 +72,12 @@ struct MealSlotDetailView: View {
         ScrollView {
             VStack(spacing: 16) {
                 headerCard
+                optionsRow
                 if let target = preworkoutCarbTargetG, slot.isPreworkout {
                     PreworkoutCarbCard(carbsG: group?.totalCarbsG ?? 0, targetG: target, slotName: slot.name, mealSlotId: slot.id, date: date) { food, servings in
                         Task { await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date) }
                     }
                 }
-                optionsRow
 
                 if entries.isEmpty {
                     emptyState

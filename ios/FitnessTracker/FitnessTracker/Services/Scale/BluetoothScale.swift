@@ -184,6 +184,14 @@ final class BluetoothScale: NSObject {
         if let last = lastUnitRequest, last.code == code, Date().timeIntervalSince(last.time) < 3 { return }
         lastUnitRequest = (code, Date())
         write(ScaleDecoding.icomonUnit(code))
+        // If the scale still shows the old unit a moment later, the first command was
+        // missed: send it once more (unless the food has changed in the meantime).
+        Task {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if connectedName != nil, unit != code, lastUnitRequest?.code == code {
+                write(ScaleDecoding.icomonUnit(code))
+            }
+        }
     }
 
     /// The reply this family of kitchen scale expects after you subscribe to its

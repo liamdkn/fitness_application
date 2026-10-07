@@ -12,12 +12,31 @@ struct MealSlotDetailView: View {
     /// Carbs to aim for in this meal - set for the Preworkout slot only.
     var preworkoutCarbTargetG: Double?
 
+    /// Session start for the preworkout carbs, as minutes after midnight (11:30 to begin with).
+    @AppStorage("preworkout-session-minutes") private var sessionMinutes = 11 * 60 + 30
     @State private var addingFood = false
     @State private var addingSavedMeal = false
     @State private var copyingMeal = false
     @State private var weighing = false
     @State private var isSavingMeal = false
     @State private var editingEntry: MealSlotEntry?
+
+    /// Carbs eaten in the day's other meals and when, for the preworkout plan.
+    private var earlierCarbs: [PreworkoutPlan.Earlier] {
+        viewModel.slotGroups
+            .filter { $0.slot.id != slot.id }
+            .flatMap(\.entries)
+            .map { PreworkoutPlan.Earlier(carbsG: $0.carbsG, time: $0.entry.eatenAt ?? $0.entry.loggedAt) }
+    }
+
+    /// Quick carbs still to eat for the preworkout meal, after earlier meals are counted.
+    private var quickCarbsNeededG: Double? {
+        guard slot.isPreworkout, let target = preworkoutCarbTargetG else { return nil }
+        let calendar = Calendar.current
+        let session = calendar.date(bySettingHour: sessionMinutes / 60, minute: sessionMinutes % 60, second: 0, of: date) ?? date
+        let credit = PreworkoutPlan.credit(earlier: earlierCarbs, session: session)
+        return PreworkoutPlan.needed(targetG: target, creditG: credit, loggedG: group?.totalCarbsG ?? 0)
+    }
 
     private var group: MealSlotGroup? {
         viewModel.slotGroups.first { $0.slot.id == slot.id }
@@ -74,7 +93,13 @@ struct MealSlotDetailView: View {
                 headerCard
                 optionsRow
                 if let target = preworkoutCarbTargetG, slot.isPreworkout {
-                    PreworkoutCarbCard(carbsG: group?.totalCarbsG ?? 0, targetG: target, slotName: slot.name, mealSlotId: slot.id, date: date) { food, servings in
+                    PreworkoutCarbCard(
+                        targetG: target,
+                        loggedG: group?.totalCarbsG ?? 0,
+                        earlier: earlierCarbs,
+                        date: date,
+                        sessionMinutes: $sessionMinutes
+                    ) { food, servings in
                         Task { await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date) }
                     }
                 }
@@ -122,7 +147,7 @@ struct MealSlotDetailView: View {
                 onLog: { food, quantity in
                     Task { await viewModel.logFood(food, quantity: quantity, mealSlotId: slot.id, date: date) }
                 },
-                carbsRemainingG: preworkoutCarbTargetG.flatMap { slot.isPreworkout ? max($0 - (group?.totalCarbsG ?? 0), 0) : nil }
+                carbsRemainingG: quickCarbsNeededG
             )
         }
         .sheet(isPresented: $addingSavedMeal) {

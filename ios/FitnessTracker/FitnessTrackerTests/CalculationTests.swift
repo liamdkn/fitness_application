@@ -247,3 +247,31 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite struct PreworkoutPlanTests {
+    private let session = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test func earlierCarbsFadeWithTheHoursBeforeTheSession() {
+        let justAte = PreworkoutPlan.Earlier(carbsG: 60, time: session)
+        let threeHours = PreworkoutPlan.Earlier(carbsG: 60, time: session.addingTimeInterval(-3 * 3600))
+        let sixHours = PreworkoutPlan.Earlier(carbsG: 60, time: session.addingTimeInterval(-6 * 3600))
+        #expect(abs(PreworkoutPlan.credit(earlier: [justAte], session: session) - 60) < 0.001)
+        #expect(abs(PreworkoutPlan.credit(earlier: [threeHours], session: session) - 30) < 0.001)
+        #expect(abs(PreworkoutPlan.credit(earlier: [sixHours], session: session) - 15) < 0.001)
+    }
+
+    @Test func foodEatenAfterTheSessionStartsDoesNotCount() {
+        let later = PreworkoutPlan.Earlier(carbsG: 60, time: session.addingTimeInterval(3600))
+        #expect(PreworkoutPlan.credit(earlier: [later], session: session) == 0)
+    }
+
+    @Test func neededIsTheTargetLessCreditAndWhatIsLogged() {
+        #expect(PreworkoutPlan.needed(targetG: 74, creditG: 26, loggedG: 0) == 48)
+        #expect(PreworkoutPlan.needed(targetG: 74, creditG: 26, loggedG: 20) == 28)
+        #expect(PreworkoutPlan.needed(targetG: 74, creditG: 80, loggedG: 0) == 0)
+    }
+
+    @Test func quickCarbsAreTakenFortyFiveMinutesBefore() {
+        #expect(PreworkoutPlan.takeTime(session: session) == session.addingTimeInterval(-45 * 60))
+    }
+}
+

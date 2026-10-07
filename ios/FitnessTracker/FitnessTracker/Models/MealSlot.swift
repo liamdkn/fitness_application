@@ -12,6 +12,10 @@ struct MealSlot: Codable, Identifiable, Hashable {
         return squashed.hasPrefix("preworkout")
     }
 
+    /// Snacks are eaten throughout the day, so each keeps its own time rather
+    /// than sharing one for the meal. Recognised by name, like the preworkout slot.
+    var isSnacks: Bool { name.localizedCaseInsensitiveContains("snack") }
+
     enum CodingKeys: String, CodingKey {
         case id, name
         case sortOrder = "sort_order"

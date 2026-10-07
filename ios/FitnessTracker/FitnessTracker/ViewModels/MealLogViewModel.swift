@@ -200,6 +200,10 @@ final class MealLogViewModel: ObservableObject {
     }
 
     /// When each meal was eaten, as recorded on its foods (they all share it).
+    private func isSnacks(_ slotId: UUID) -> Bool {
+        mealSlots.first { $0.id == slotId }?.isSnacks ?? false
+    }
+
     func mealEatenAt(_ slotId: UUID) -> Date? {
         entries.filter { $0.mealSlotId == slotId }.compactMap(\.eatenAt).min()
     }
@@ -207,7 +211,7 @@ final class MealLogViewModel: ObservableObject {
     private func mealTimes() -> [UUID: Date] {
         var times: [UUID: Date] = [:]
         for entry in entries {
-            guard let eatenAt = entry.eatenAt else { continue }
+            guard let eatenAt = entry.eatenAt, !isSnacks(entry.mealSlotId) else { continue }
             times[entry.mealSlotId] = min(times[entry.mealSlotId] ?? eatenAt, eatenAt)
         }
         return times

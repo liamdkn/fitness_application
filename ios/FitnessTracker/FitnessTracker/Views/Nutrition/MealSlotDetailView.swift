@@ -26,7 +26,16 @@ struct MealSlotDetailView: View {
         viewModel.slotGroups
             .filter { $0.slot.id != slot.id }
             .flatMap(\.entries)
-            .map { PreworkoutPlan.Earlier(carbsG: $0.carbsG, time: $0.entry.eatenAt ?? $0.entry.loggedAt) }
+            .compactMap { slotEntry -> PreworkoutPlan.Earlier? in
+                let entry = slotEntry.entry
+                // The time it was eaten. Failing that, the moment it was logged - but only if that
+                // was the day itself (logged as eaten): a meal planned the day before says nothing
+                // about when it is eaten, so it earns no credit until a time is set.
+                if let eatenAt = entry.eatenAt { return .init(carbsG: slotEntry.carbsG, time: eatenAt) }
+                guard let day = DateFormatting.date(fromISODate: entry.date),
+                      Calendar.current.isDate(entry.loggedAt, inSameDayAs: day) else { return nil }
+                return .init(carbsG: slotEntry.carbsG, time: entry.loggedAt)
+            }
     }
 
     /// Quick carbs still to eat for the preworkout meal, after earlier meals are counted.

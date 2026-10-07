@@ -26,6 +26,10 @@ more) next to the scale and follow the on-screen prompts:
     python scale_probe.py --tare    # the same with the tare command (leave something on the scale)
     python scale_probe.py --watch   # print only what changes (weight, unit, flags) and any other
                                     # message, for 60 s: press TARE, lift things, press the buttons
+    python scale_probe.py --foods   # upload three foods into the scale's own food list (Oats, Whole Milk,
+                                    # Banana, with macros) and watch for 60 s while you try the scale's
+                                    # food mode and its arrow buttons
+    python scale_probe.py --clear-foods   # remove the three foods --foods uploaded
     python scale_probe.py --show    # put a food on the scale's screen: name and macros per 100 g
                                     # (Oats by default; or --show "Whole Milk" 64 3.4 4.8 3.6
                                     #  = name, kcal, protein, carbs, fat). Press the scale's tick
@@ -190,7 +194,10 @@ def describe(data: bytes) -> str:
         d = body[3:]
         unit = d[1] >> 4
         grams = ((d[2] << 16) | (d[3] << 8) | d[4]) / 1000
+        food_id = int.from_bytes(d[5:9], "big")
         text += f" weight {grams:g} g, scale shows {UNIT_NAMES.get(unit, unit)}, flags {d[0]:02X}"
+        if food_id:
+            text += f", food id {food_id}"
     return f"{text}   [{data.hex(' ')}]"
 
 
@@ -298,7 +305,73 @@ async def watch():
         print("\nDone.")
 
 
+async def upload_foods():
+    from pyfitdaysplus.models import CommonFood, NutritionFact, NutritionFactType as T
+    from pyfitdaysplus.protocol.food_write import build_set_common_food_indexed_frames
+
+    def food(food_id, name, kcal, protein, carbs, fat):
+        return CommonFood(food_id=food_id, name=name, weight=100, facts=(
+            NutritionFact(T.CALORIE, kcal), NutritionFact(T.PROTEIN, protein),
+            NutritionFact(T.CARBOHYDRATE, carbs), NutritionFact(T.FAT, fat)))
+
+    foods = [food(11, "Oats", 389, 16.9, 66.3, 6.9), food(12, "Whole Milk", 64, 3.4, 4.8, 3.6),
+             food(13, "Banana", 89, 1.1, 22.8, 0.3)]
+    device = await find()
+    started = time.time()
+    last = {"key": None}
+
+    def show(_, message: bytearray):
+        data = bytes(message)
+        if len(data) >= 5 and data[0] == 0xAC and data[-2] == 0xA6:
+            if data[2:-1] == last["key"]:
+                return
+            last["key"] = data[2:-1]
+        print(f"[{time.time() - started:5.1f}s]   <- {describe(data)}", flush=True)
+
+    async with BleakClient(device) as client:
+        await client.start_notify(NOTIFY, show)
+        await asyncio.sleep(2)
+        await client.write_gatt_char(WRITE, HANDSHAKE, response=True)
+        await asyncio.sleep(1)
+        await client.write_gatt_char(WRITE, USER_INFO, response=True)
+        await asyncio.sleep(3)
+        for index, item in enumerate(foods):
+            for data in build_set_common_food_indexed_frames(index, item):
+                print(f"\n[{time.time() - started:5.1f}s] -> food {index}: {item.name}  {data.hex(' ')}", flush=True)
+                await client.write_gatt_char(WRITE, data, response=True)
+                await asyncio.sleep(0.5)
+        print("\n>>> LOOK AT THE SCALE. Try its food mode and press the arrow buttons; "
+              "put something on. Say what each screen shows. <<<\n", flush=True)
+        await asyncio.sleep(60)
+        print("\nDone.")
+
+
+async def clear_foods():
+    from pyfitdaysplus.models import FoodReference
+    from pyfitdaysplus.protocol.food_write import build_delete_common_foods_frames
+
+    frames = build_delete_common_foods_frames([FoodReference(food_id=11 + i, food_index=i) for i in range(3)])
+    device = await find()
+    async with BleakClient(device) as client:
+        await client.start_notify(NOTIFY, lambda _, m: print("   <-", describe(bytes(m))[:90], flush=True))
+        await asyncio.sleep(2)
+        await client.write_gatt_char(WRITE, HANDSHAKE, response=True)
+        await asyncio.sleep(1)
+        for data in frames:
+            print("-> delete foods", data.hex(" "), flush=True)
+            await client.write_gatt_char(WRITE, data, response=True)
+            await asyncio.sleep(0.5)
+        await asyncio.sleep(3)
+        print("Done.")
+
+
 if __name__ == "__main__":
+    if "--clear-foods" in sys.argv:
+        asyncio.run(clear_foods())
+        sys.exit()
+    if "--foods" in sys.argv:
+        asyncio.run(upload_foods())
+        sys.exit()
     if "--watch" in sys.argv:
         asyncio.run(watch())
         sys.exit()

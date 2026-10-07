@@ -19,6 +19,8 @@ struct LiquidsLogView: View {
     @State private var showingDrinkPicker = false
     @State private var showingNewDrink = false
     @State private var showingCoffeeSetup = false
+    @State private var showingCustomAmount = false
+    @State private var showingMilkAllowance = false
     @State private var pendingDrink: Food?
     private let waterRepository = WaterRepository()
     private let liquidsRepository = LiquidsRepository()
@@ -31,17 +33,18 @@ struct LiquidsLogView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                summarySection
-                WaterPaceSection(day: day, preferences: preferences, glassMl: glassMl)
-                waterSection
-                drinksSection
-                customAmountSection
-                todaySection
+            ScrollView {
+                VStack(spacing: 20) {
+                    summaryCard
+                    waterTiles
+                    drinkTiles
+                    todayLog
 
-                if let errorMessage {
-                    Text(errorMessage).foregroundStyle(AppColor.error)
+                    if let errorMessage {
+                        Text(errorMessage).foregroundStyle(AppColor.error)
+                    }
                 }
+                .padding()
             }
             .appScreen()
             .navigationTitle("Liquids")
@@ -49,7 +52,14 @@ struct LiquidsLogView: View {
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Edit") { showingEditContainers = true }
+                    Menu {
+                        Button("Edit Containers", systemImage: "pencil") { showingEditContainers = true }
+                        Button("New Drink", systemImage: "plus") { showingNewDrink = true }
+                        Button("Set Up Coffee", systemImage: "cup.and.saucer") { showingCoffeeSetup = true }
+                        Button("Daily Milk Allowance", systemImage: "cup.and.heat.waves") { showingMilkAllowance = true }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
                     .appToolbarTint()
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -57,7 +67,15 @@ struct LiquidsLogView: View {
                     .appToolbarTint()
                 }
             }
+            .navigationDestination(isPresented: $showingMilkAllowance) { MilkAllowanceView() }
+            .sensoryFeedback(.success, trigger: day.items.count)
             .task { await load() }
+            .alert("Add Water", isPresented: $showingCustomAmount) {
+                TextField("ml", text: $customAmountText)
+                    .keyboardType(.numberPad)
+                Button("Add") { Task { await addCustomWater() } }
+                Button("Cancel", role: .cancel) { customAmountText = "" }
+            }
             .sheet(isPresented: $showingEditContainers, onDismiss: { Task { await loadContainers() } }) {
                 NavigationStack {
                     WaterContainersEditView()
@@ -88,23 +106,31 @@ struct LiquidsLogView: View {
 
     // MARK: - Sections
 
-    private var summarySection: some View {
-        Section {
-            VStack(spacing: 4) {
-                Text(formattedAmount(Int(day.hydrationMl.rounded())))
-                    .font(.largeTitle.bold())
-                Text("today")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity)
-            .listRowBackground(Color.clear)
+    private var waterTarget: Double { Double(preferences?.dailyWaterMlTargetMin ?? 2000) }
 
+    /// Today's total against the water target, the caffeine so far, and the pace in one line.
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(formattedAmount(Int(day.hydrationMl.rounded())))
+                    .font(.system(size: 40, weight: .bold, design: .rounded))
+                    .rolling(day.hydrationMl)
+                Text("of \(formattedAmount(Int(waterTarget)))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            AppProgressBar(value: min(day.hydrationMl / max(waterTarget, 1), 1))
+                .tint(AppColor.water)
+            WaterPaceSection(day: day, preferences: preferences, glassMl: glassMl)
+
+            Divider()
             NavigationLink {
                 CaffeineView()
             } label: {
                 HStack {
                     Label("Caffeine", systemImage: "cup.and.saucer.fill")
+                        .foregroundStyle(AppColor.caffeine)
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(Int(day.caffeineMg.rounded())) / \(caffeineLimit) mg")
@@ -116,105 +142,87 @@ struct LiquidsLogView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
                 }
             }
+            .buttonStyle(.plain)
         }
-        .listRowBackground(AppRowBackground())
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .appCard(cornerRadius: 16)
     }
 
-    private var waterSection: some View {
-        Section("Water") {
-            if containers.isEmpty {
-                Text("Add a container with Edit, or type an amount below.")
+    private let tileColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
+    /// One tap per container, and an Other tile for any amount.
+    private var waterTiles: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Water").font(.title3.bold())
+            LazyVGrid(columns: tileColumns, spacing: 10) {
+                ForEach(containers) { container in
+                    tile(container.name, "+\(container.volumeMl) ml", icon: "drop.fill") {
+                        Task { await addWater(amountMl: container.volumeMl, containerId: container.id) }
+                    }
+                }
+                tile("Other", "any amount", icon: "plus") { showingCustomAmount = true }
+            }
+        }
+    }
+
+    /// Usual drinks as tiles, and one to find any other by scanning or searching.
+    private var drinkTiles: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Drinks").font(.title3.bold())
+            LazyVGrid(columns: Array(tileColumns.prefix(2)), spacing: 10) {
+                ForEach(quickDrinks) { food in
+                    tile(food.displayName, detail(for: food), icon: "cup.and.saucer.fill") {
+                        pendingDrink = food
+                    }
+                }
+                tile("Add a drink", "scan or search", icon: "barcode.viewfinder") { showingDrinkPicker = true }
+            }
+        }
+    }
+
+    private func tile(_ title: String, _ subtitle: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: icon)
+                    .foregroundStyle(AppColor.accent)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
             }
-            ForEach(containers) { container in
-                Button {
-                    Task { await addWater(amountMl: container.volumeMl, containerId: container.id) }
-                } label: {
-                    HStack {
-                        Text(container.name).foregroundStyle(.primary)
-                        Spacer()
-                        Text("+\(container.volumeMl) ml").foregroundStyle(.secondary)
-                    }
-                }
-            }
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+            .padding(12)
+            .appCard(cornerRadius: 12)
         }
-        .listRowBackground(AppRowBackground())
-    }
-
-    private var drinksSection: some View {
-        Section {
-            ForEach(quickDrinks) { food in
-                Button {
-                    pendingDrink = food
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(food.displayName).foregroundStyle(.primary)
-                            Text(detail(for: food))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Image(systemName: "plus.circle")
-                            .foregroundStyle(AppColor.accent)
-                    }
-                }
-            }
-            Button {
-                showingDrinkPicker = true
-            } label: {
-                Label("Scan or Search for a Drink", systemImage: "barcode.viewfinder")
-            }
-            Button {
-                showingCoffeeSetup = true
-            } label: {
-                Label("Set Up Coffee (Brew Pot or Pod)", systemImage: "cup.and.saucer")
-            }
-            Button {
-                showingNewDrink = true
-            } label: {
-                Label("New Drink", systemImage: "plus")
-            }
-            NavigationLink {
-                MilkAllowanceView()
-            } label: {
-                Label("Daily Milk Allowance", systemImage: "cup.and.heat.waves")
-            }
-        } header: {
-            Text("Drinks")
-        } footer: {
-            Text("A drink counts toward your calories, sodium and caffeine like any food - it's logged to a Drinks meal.")
-        }
-        .listRowBackground(AppRowBackground())
-    }
-
-    private var customAmountSection: some View {
-        Section("Custom Water Amount") {
-            HStack {
-                TextField("e.g. 250", text: $customAmountText)
-                    .keyboardType(.numberPad)
-                Text("ml").foregroundStyle(.secondary)
-                Button("Add") {
-                    Task { await addCustomWater() }
-                }
-                .disabled((Int(customAmountText) ?? 0) <= 0)
-            }
-        }
-        .listRowBackground(AppRowBackground())
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
-    private var todaySection: some View {
+    private var todayLog: some View {
         if !day.items.isEmpty {
-            Section("Today") {
-                ForEach(day.items) { item in
-                    itemRow(item)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Today").font(.title3.bold())
+                VStack(spacing: 8) {
+                    ForEach(day.items) { item in
+                        itemRow(item)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .appCard(cornerRadius: 12)
+                            .swipeToDelete(cornerRadius: 12) { remove(item) }
+                    }
                 }
-                .onDelete(perform: removeItems)
             }
-            .listRowBackground(AppRowBackground())
         }
     }
 
@@ -321,19 +329,15 @@ struct LiquidsLogView: View {
         }
     }
 
-    private func removeItems(at offsets: IndexSet) {
-        let items = day.items
-        let toRemove = offsets.map { items[$0] }
+    private func remove(_ item: LiquidItem) {
         Task {
-            for item in toRemove {
-                do {
-                    switch item.kind {
-                    case .water(let log): try await waterRepository.deleteLog(id: log.id)
-                    case .drink(let drink): try await OfflineMealQueue.shared.deleteEntry(id: drink.entry.id)
-                    }
-                } catch {
-                    errorMessage = error.localizedDescription
+            do {
+                switch item.kind {
+                case .water(let log): try await waterRepository.deleteLog(id: log.id)
+                case .drink(let drink): try await OfflineMealQueue.shared.deleteEntry(id: drink.entry.id)
                 }
+            } catch {
+                errorMessage = error.localizedDescription
             }
             await loadDay()
             await CaffeineReminderService.shared.refresh()

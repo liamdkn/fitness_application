@@ -38,7 +38,7 @@ struct WaterPaceSection: View {
     }
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 4) {
             if nowMinute < wakeMinutes || nowMinute >= endMinutes || behind < 100 {
                 Label("On pace for today", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(AppColor.success)
@@ -53,20 +53,23 @@ struct WaterPaceSection: View {
                 Label("\(behindText) \(advice)", systemImage: "drop.fill")
                     .foregroundStyle(AppColor.water)
             }
-            if let yesterday = pastDays.first, !yesterday.items.isEmpty {
-                LabeledContent("Yesterday by now", value: format(at(yesterday)))
+            if let comparison {
+                Text(comparison)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            if let usualByNow {
-                LabeledContent("Usually by now", value: format(usualByNow))
-            }
-            LabeledContent("Today so far", value: format(day.hydrationMl))
-        } header: {
-            Text("Pace")
-        } footer: {
-            Text("Pace is a steady climb from when you usually wake to a couple of hours before bed, ending at the low end of your water target.")
         }
-        .listRowBackground(AppRowBackground())
+        .font(.subheadline)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task { await load() }
+    }
+
+    /// "Yesterday by now 1.2 L - usually 1.1 L", whichever are known.
+    private var comparison: String? {
+        var parts: [String] = []
+        if let yesterday = pastDays.first, !yesterday.items.isEmpty { parts.append("Yesterday by now \(format(at(yesterday)))") }
+        if let usualByNow { parts.append("Usually \(format(usualByNow))") }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00b7} ")
     }
 
     private func format(_ ml: Double) -> String {

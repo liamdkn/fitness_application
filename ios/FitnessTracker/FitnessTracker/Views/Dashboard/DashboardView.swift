@@ -44,8 +44,6 @@ struct DashboardView: View {
 
                     MissedCheckinsBanner()
 
-                    SupplementsCard()
-
                     LiquidsCard(
                         totalMl: viewModel.todayWaterMl,
                         targetMinMl: viewModel.waterTargetMinMl,
@@ -139,6 +137,8 @@ struct DashboardView: View {
                             .font(.caption)
                         }
                     }
+
+                    SupplementsCard()
 
                     WeeklyLogLinkCard()
 

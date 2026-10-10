@@ -109,7 +109,9 @@ struct MealLogHomeView: View {
     /// don't change, they're simply eaten across the other meals.
     private var visibleSlotGroups: [MealSlotGroup] {
         viewModel.slotGroups.filter { group in
-            !(isRestDay && group.slot.isPreworkout && group.entries.isEmpty)
+            // Drinks are logged and read in Liquids; their calories still count in the day's totals.
+            group.slot.name.caseInsensitiveCompare(LiquidsRepository.slotName) != .orderedSame
+                && !(isRestDay && group.slot.isPreworkout && group.entries.isEmpty)
         }
     }
 
@@ -166,7 +168,7 @@ struct MealLogHomeView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        if isRestDay, visibleSlotGroups.count < viewModel.slotGroups.count {
+                        if isRestDay, viewModel.slotGroups.contains(where: { $0.slot.isPreworkout && $0.entries.isEmpty }) {
                             Label("Rest day: no preworkout meal. Your calories stay the same and get eaten across the other meals.", systemImage: "bed.double")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

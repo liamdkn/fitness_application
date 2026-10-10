@@ -6,10 +6,17 @@ import AppIntents
 struct LogNextMealIntent: AppIntent {
     static var title: LocalizedStringResource = "Log Next Meal"
     static var description = IntentDescription("Records the current time as when you ate your next planned meal today.")
-    static var openAppWhenRun = false
+    /// Runs quietly in the background, and only comes to the front when the next meal has
+    /// nothing in it: then the app opens on that meal so it can be filled in.
+    static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let outcome = try await MealStampService.stampNextMeal()
-        return .result(dialog: IntentDialog(stringLiteral: MealStampService.message(for: outcome)))
+        let dialog = IntentDialog(stringLiteral: MealStampService.message(for: outcome))
+        if case .nothingTracked(_, let mealSlotId) = outcome {
+            await MealTagRouter.shared.open(mealSlotId)
+            try await continueInForeground(dialog, alwaysConfirm: false)
+        }
+        return .result(dialog: dialog)
     }
 }

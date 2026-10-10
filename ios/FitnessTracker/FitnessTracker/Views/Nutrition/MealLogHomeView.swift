@@ -7,6 +7,9 @@ import SwiftUI
 /// another food app any more.
 struct MealLogHomeView: View {
     @State private var selectedDate = Date()
+    /// A meal opened by a tag scan (see `MealTagRouter`).
+    @State private var router = MealTagRouter.shared
+    @State private var openedSlot: MealSlot?
     @State private var goal: UserGoal?
     @State private var showingRepeatDay = false
     @State private var showingSavedDaysPicker = false
@@ -77,6 +80,14 @@ struct MealLogHomeView: View {
     }
     private var adjustedFatTarget: Double? {
         goal?.fatGTarget.map { $0 + bankAdjustment.fatDelta }
+    }
+
+    /// Opens the meal a tag scan asked for, on today.
+    private func openPendingMeal() {
+        guard let id = router.pendingMealSlotId, let slot = viewModel.mealSlots.first(where: { $0.id == id }) else { return }
+        router.pendingMealSlotId = nil
+        if !Calendar.current.isDateInToday(selectedDate) { selectedDate = Date() }
+        openedSlot = slot
     }
 
     /// The selected day is after today.
@@ -184,8 +195,13 @@ struct MealLogHomeView: View {
                 .padding()
             }
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $openedSlot) { slot in
+                MealSlotDetailView(viewModel: viewModel, slot: slot, date: selectedDate, preworkoutCarbTargetG: preworkoutCarbTargetG)
+            }
+            .onChange(of: router.pendingMealSlotId) { openPendingMeal() }
             .task {
                 await viewModel.loadMealSlots()
+                openPendingMeal()
                 await viewModel.loadEntries(date: selectedDate)
                 await loadGoal()
                 await loadWeekLogStatus()

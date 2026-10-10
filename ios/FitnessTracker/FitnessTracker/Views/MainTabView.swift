@@ -3,17 +3,29 @@ import SwiftUI
 struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var leftAt: Date?
+    @State private var router = MealTagRouter.shared
+
+    private enum Tab: Hashable { case dashboard, train, nutrition, settings }
+    @State private var selectedTab = Tab.dashboard
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             DashboardView()
                 .tabItem { Label("Dashboard", systemImage: "chart.bar.fill") }
+                .tag(Tab.dashboard)
             StartWorkoutView()
                 .tabItem { Label("Train", systemImage: "figure.strengthtraining.traditional") }
+                .tag(Tab.train)
             MealLogHomeView()
                 .tabItem { Label("Nutrition", systemImage: "fork.knife") }
+                .tag(Tab.nutrition)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                .tag(Tab.settings)
+        }
+        // A meal tag with nothing tracked opens that meal: go to Nutrition for it.
+        .onChange(of: router.pendingMealSlotId) { _, id in
+            if id != nil { selectedTab = .nutrition }
         }
         .overlay(alignment: .top) { OfflineBanner() }
         .task {

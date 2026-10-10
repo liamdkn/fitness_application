@@ -34,7 +34,7 @@ Once that intent exists, the Shortcuts/NFC setup is identical to water: a shortc
 `FitnessTracker/Intents/LogNextMealIntent.swift` (main app target, so it runs in the app's process with its normal access and stamps the meal straight away - no queue). A scan stamps the current time as `eaten_at` on every food in the next meal of today, in meal order:
 
 - The next meal is the first one with no time yet. Snacks (each food keeps its own time), the Drinks meal and an empty Preworkout meal are not in the order.
-- If that meal has nothing logged, nothing is stamped: it says "You have nothing tracked for <meal> yet", and a scan after adding food stamps it.
+- If that meal has nothing logged, nothing is stamped: it says "You have nothing tracked for <meal> yet" and the app opens on that meal (Nutrition tab, today) so it can be filled in; a scan after adding food stamps it. This is the one case where the intent comes to the foreground (`supportedModes` with `.foreground(.dynamic)`, iOS 26+).
 - When every meal has a time it says so and changes nothing. A wrong stamp is cleared with the ✕ on the meal's "Eaten at" row.
 
 Setup, once, no code: Shortcuts -> Automation -> + -> NFC -> scan the tag -> add the "Log Next Meal" action (FitnessTracker) -> turn off "Ask Before Running". The tag can also be written with the link `fitnesstracker://meal/next`, which opens the app and shows the result in an alert.

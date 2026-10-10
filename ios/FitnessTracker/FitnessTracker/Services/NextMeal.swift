@@ -25,7 +25,7 @@ enum MealStampService {
     enum Outcome {
         case stamped(mealName: String, time: Date)
         /// The next meal has nothing tracked yet, so there's nothing to stamp.
-        case nothingTracked(mealName: String)
+        case nothingTracked(mealName: String, mealSlotId: UUID)
         /// Every meal already has a time.
         case nothingToStamp
     }
@@ -34,7 +34,7 @@ enum MealStampService {
         let slots = try await MealSlotsRepository().fetchAll()
         let entries = try await OfflineMealQueue.shared.fetchEntries(date: now)
         guard let slot = NextMeal.pick(slots: slots, entries: entries) else { return .nothingToStamp }
-        guard entries.contains(where: { $0.mealSlotId == slot.id }) else { return .nothingTracked(mealName: slot.name) }
+        guard entries.contains(where: { $0.mealSlotId == slot.id }) else { return .nothingTracked(mealName: slot.name, mealSlotId: slot.id) }
         for entry in entries where entry.mealSlotId == slot.id {
             _ = try await OfflineMealQueue.shared.updateEatenAt(id: entry.id, eatenAt: now)
         }
@@ -46,7 +46,7 @@ enum MealStampService {
         switch outcome {
         case .stamped(let name, let time):
             "\(name) logged at \(time.formatted(date: .omitted, time: .shortened))"
-        case .nothingTracked(let name):
+        case .nothingTracked(let name, _):
             "You have nothing tracked for \(name) yet. Add what you're eating, then scan again."
         case .nothingToStamp:
             "Every meal already has a time."

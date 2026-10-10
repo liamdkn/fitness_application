@@ -45,7 +45,13 @@ struct FitnessTrackerApp: App {
                     guard url.scheme == "fitnesstracker", url.host == "meal", url.path == "/next" else { return }
                     Task {
                         do {
-                            scanMessage = MealStampService.message(for: try await MealStampService.stampNextMeal())
+                            let outcome = try await MealStampService.stampNextMeal()
+                            if case .nothingTracked(_, let mealSlotId) = outcome {
+                                // Nothing to stamp yet: open that meal so it can be filled in.
+                                MealTagRouter.shared.open(mealSlotId)
+                            } else {
+                                scanMessage = MealStampService.message(for: outcome)
+                            }
                         } catch {
                             scanMessage = error.localizedDescription
                         }

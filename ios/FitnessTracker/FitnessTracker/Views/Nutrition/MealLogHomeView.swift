@@ -541,7 +541,7 @@ struct SodiumRow: View {
     let sodiumLimitMg: Int
 
     var body: some View {
-        metric("Sodium", value: sodiumMg, limit: Double(sodiumLimitMg), color: AppColor.sodium)
+        metric("Salt", value: SaltConversion.saltG(fromSodiumMg: sodiumMg), limit: SaltConversion.saltG(fromSodiumMg: Double(sodiumLimitMg)), color: AppColor.sodium)
     }
 
     private func metric(_ label: String, value: Double, limit: Double, color: Color) -> some View {
@@ -549,7 +549,7 @@ struct SodiumRow: View {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("\(Int(value.rounded()).formatted()) / \(Int(limit).formatted()) mg")
+            Text(String(format: "%.1f / %.1f g", value, limit))
                 .font(.subheadline.bold())
                 .monospacedDigit()
                 .rolling(value)

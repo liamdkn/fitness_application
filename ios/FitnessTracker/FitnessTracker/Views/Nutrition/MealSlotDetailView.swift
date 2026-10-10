@@ -196,13 +196,6 @@ struct MealSlotDetailView: View {
                 onSetEatenAt: { time in
                     Task { await viewModel.updateEatenAt(slotEntry.entry, eatenAt: time) }
                 },
-                onAddSalt: { grams in
-                    Task {
-                        // Salt is a food of its own (per 100 g), logged to this meal.
-                        guard let salt = await FoodRepository().saltFood() else { return }
-                        await viewModel.logFood(salt, quantity: grams / max(salt.servingSize, 1), mealSlotId: slot.id, date: date)
-                    }
-                }
             )
         }
     }
@@ -268,7 +261,7 @@ struct MealSlotDetailView: View {
             let sodium = group?.totalSodiumMg ?? 0
             if sodium > 0 {
                 HStack(spacing: 18) {
-                    Label("\(Int(sodium.rounded())) mg sodium", systemImage: "drop.triangle")
+                    Label("\(SaltConversion.label(sodiumMg: sodium)) salt", systemImage: "drop.triangle")
                     Spacer(minLength: 0)
                 }
                 .font(.caption)
@@ -502,12 +495,10 @@ private struct EditMealEntryQuantityView: View {
     /// Snacks only: each has its own time eaten.
     let showsEatenTime: Bool
     let onSetEatenAt: (Date?) -> Void
-    let onAddSalt: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var hasEatenTime: Bool
     @State private var eatenTime: Date
-    @State private var saltText = ""
     @State private var quantityText: String
     @State private var inputMode: QuantityInputMode = .servings
     /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
@@ -524,7 +515,6 @@ private struct EditMealEntryQuantityView: View {
         onRemove: @escaping () -> Void,
         showsEatenTime: Bool,
         onSetEatenAt: @escaping (Date?) -> Void,
-        onAddSalt: @escaping (Double) -> Void
     ) {
         self.entry = entry
         self.onConfirm = onConfirm
@@ -533,7 +523,6 @@ private struct EditMealEntryQuantityView: View {
         self.onSetEatenAt = onSetEatenAt
         _hasEatenTime = State(initialValue: entry.entry.eatenAt != nil)
         _eatenTime = State(initialValue: entry.entry.displayTime)
-        self.onAddSalt = onAddSalt
         self.info = EditableFoodInfo(entry)
         _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity))
     }
@@ -618,28 +607,6 @@ private struct EditMealEntryQuantityView: View {
                 if entry.recipe != nil {
                     RecipeIngredientsSection(list: ingredients)
                 }
-                Section {
-                    HStack {
-                        Text("Salt added")
-                        Spacer()
-                        TextField("0", text: $saltText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 70)
-                        Text("g").foregroundStyle(.secondary)
-                    }
-                    if let grams = Double(saltText), grams > 0 {
-                        Button("Add \(AmountLabel.trimmed(grams))g salt to this meal (\(Int((grams * 393).rounded())) mg sodium)") {
-                            onAddSalt(grams)
-                            saltText = ""
-                        }
-                    }
-                } header: {
-                    Text("Salt")
-                } footer: {
-                    Text("Logged as its own item in this meal, counted in sodium. About 393 mg of sodium per gram of salt.")
-                }
-                .listRowBackground(AppRowBackground())
                 Section {
                     Button("Remove from Meal", role: .destructive) {
                         onRemove()

@@ -484,7 +484,7 @@ struct LogFoodQuantityView: View {
                             LabeledContent("Fiber", value: "\(Int(fiber))g")
                         }
                         if let sodium = food.sodiumMg(at: quantity) {
-                            LabeledContent("Sodium", value: "\(Int(sodium.rounded())) mg")
+                            LabeledContent("Salt", value: SaltConversion.label(sodiumMg: sodium))
                         }
                     }
                     .listRowBackground(AppRowBackground())

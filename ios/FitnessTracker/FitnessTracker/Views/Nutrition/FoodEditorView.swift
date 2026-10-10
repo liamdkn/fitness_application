@@ -7,7 +7,7 @@ import SwiftUI
 ///
 /// - the serving size *and* what the printed label is per (a 6 g serving off
 ///   a "per 100 g" label is the normal case - the app works one serving out),
-/// - sodium, and
+/// - salt (the label's own figure; stored as sodium), and
 /// - an explicit "this item is verified" tick, which is what lets a food skip
 ///   this screen from then on (see `FoodPickerView.select`).
 ///
@@ -37,9 +37,12 @@ struct AddCustomFoodView: View {
     @State private var carbs: String
     @State private var fat: String
     @State private var fiber: String
-    @State private var sodium: String
-    /// Salt to add to the sodium, typed in grams.
-    @State private var saltToAdd = ""
+    /// Salt in grams, as printed on the label (stored as sodium).
+    @State private var salt: String
+    /// The food's sodium in mg exactly as it came in, kept so an untouched salt field
+    /// doesn't turn into a pointless "correction" through rounding.
+    private let originalSodiumMg: String
+    private let originalSaltText: String
     @State private var caffeine: String
     @State private var isVerified: Bool
     /// Whether this belongs in Liquids and counts toward hydration - only
@@ -85,7 +88,10 @@ struct AddCustomFoodView: View {
             _carbs = State(initialValue: Self.formatted(food.carbsG))
             _fat = State(initialValue: Self.formatted(food.fatG))
             _fiber = State(initialValue: food.fiberG.map { Self.formatted($0) } ?? "")
-            _sodium = State(initialValue: food.sodiumMg.map { Self.formatted($0) } ?? "")
+            let saltText = food.sodiumMg.map { Self.formatted(SaltConversion.saltG(fromSodiumMg: $0)) } ?? ""
+            _salt = State(initialValue: saltText)
+            originalSaltText = saltText
+            originalSodiumMg = food.sodiumMg.map { Self.formatted($0) } ?? ""
             _caffeine = State(initialValue: food.caffeineMg.map { Self.formatted($0) } ?? "")
             _isVerified = State(initialValue: food.isVerified)
             _isDrink = State(initialValue: food.isDrink)
@@ -102,7 +108,10 @@ struct AddCustomFoodView: View {
             _carbs = State(initialValue: initialCarbs)
             _fat = State(initialValue: initialFat)
             _fiber = State(initialValue: initialFiber)
-            _sodium = State(initialValue: initialSodium)
+            let saltText = Double(initialSodium).map { Self.formatted(SaltConversion.saltG(fromSodiumMg: $0)) } ?? ""
+            _salt = State(initialValue: saltText)
+            originalSaltText = saltText
+            originalSodiumMg = initialSodium
             _caffeine = State(initialValue: initialCaffeine)
             _isVerified = State(initialValue: false)
             _isDrink = State(initialValue: initialIsDrink)
@@ -147,7 +156,7 @@ struct AddCustomFoodView: View {
     private var fieldsAreValid: Bool {
         perServing(calories) != nil && perServing(protein) != nil && perServing(carbs) != nil && perServing(fat) != nil
             && (fiber.isEmpty || Double(fiber) != nil)
-            && (sodium.isEmpty || Double(sodium) != nil)
+            && (salt.isEmpty || Double(salt) != nil)
             && (caffeine.isEmpty || Double(caffeine) != nil)
     }
 
@@ -165,9 +174,9 @@ struct AddCustomFoodView: View {
         return MacroEnergy.check(calories: cal, protein: p, carbs: c, fat: f, fiber: Double(fiber), tolerance: .label)
     }
 
-    /// Verifying needs sodium on record - "fully accurate" includes it.
+    /// Verifying needs salt on record - "fully accurate" includes it.
     private var canVerify: Bool {
-        Double(sodium) != nil
+        Double(salt) != nil
     }
 
     // MARK: - Body
@@ -208,7 +217,7 @@ struct AddCustomFoodView: View {
                 // A custom unit ("egg") has no per-100 equivalent.
                 if unitChoice == .other { basis = .perServing }
             }
-            .onChange(of: sodium) {
+            .onChange(of: salt) {
                 if !canVerify { isVerified = false }
             }
         }
@@ -321,39 +330,20 @@ struct AddCustomFoodView: View {
             numberField("Carbs", text: $carbs, unit: "g")
             numberField("Fat", text: $fat, unit: "g")
             numberField("Fiber (optional)", text: $fiber, unit: "g")
-            numberField("Sodium", text: $sodium, unit: "mg")
-            saltRow
+            numberField("Salt", text: $salt, unit: "g")
             numberField("Caffeine (optional)", text: $caffeine, unit: "mg")
         } header: {
             Text(basis == .per100 && unitChoice != .other ? "Per 100 \(unitText) (as on the label)" : "Per serving")
-        } footer: {
-            Text("Adding salt? Type the grams of salt for one serving in Add salt and tap the button - it's added to the sodium for you. (Salt is about 393 mg of sodium per gram.)")
         }
         .listRowBackground(AppRowBackground())
     }
 
-    /// Salt added to one serving of this food, in grams, turned into sodium
-    /// (about 393 mg per gram) and added to the sodium above.
-    @ViewBuilder
-    private var saltRow: some View {
-        HStack {
-            Text("Add salt")
-            Spacer()
-            TextField("0", text: $saltToAdd)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 70)
-            Text("g").foregroundStyle(.secondary)
-        }
-        if let grams = Double(saltToAdd), grams > 0 {
-            let perServingMg = grams * 393
-            Button("Add \(Self.formatted(grams)) g salt (\(Int(perServingMg.rounded())) mg sodium) to one serving") {
-                // The field is in the label's basis, so convert back from a serving.
-                let step = perServingMg / (scale ?? 1)
-                sodium = Self.formatted((Double(sodium) ?? 0) + step)
-                saltToAdd = ""
-            }
-        }
+    /// The food's sodium for one serving, in mg: what was loaded if the salt field is
+    /// untouched, otherwise worked out from the salt typed.
+    private var sodiumPerServingMg: Double? {
+        if salt == originalSaltText { return originalSodiumMg.isEmpty ? nil : perServing(originalSodiumMg) }
+        guard let grams = perServing(salt) else { return nil }
+        return (SaltConversion.sodiumMg(fromSaltG: grams) * 100).rounded() / 100
     }
 
     private func energyWarning(_ check: MacroEnergy.Check) -> some View {
@@ -378,8 +368,8 @@ struct AddCustomFoodView: View {
             LabeledContent("Protein", value: "\(Self.formatted(perServing(protein) ?? 0)) g")
             LabeledContent("Carbs", value: "\(Self.formatted(perServing(carbs) ?? 0)) g")
             LabeledContent("Fat", value: "\(Self.formatted(perServing(fat) ?? 0)) g")
-            if let sodiumValue = perServing(sodium) {
-                LabeledContent("Sodium", value: "\(Self.formatted(sodiumValue)) mg")
+            if let sodiumValue = sodiumPerServingMg {
+                LabeledContent("Salt", value: SaltConversion.label(sodiumMg: sodiumValue))
             }
         }
     }
@@ -391,7 +381,7 @@ struct AddCustomFoodView: View {
         } footer: {
             Text(canVerify
                  ? "Tick once every number matches the pack. A verified food skips this check when you scan or pick it. Untick it any time to be asked again."
-                 : "Enter the sodium to be able to verify - a food isn't fully accurate without it.")
+                 : "Enter the salt to be able to verify - a food isn't fully accurate without it.")
         }
         .listRowBackground(AppRowBackground())
     }
@@ -429,7 +419,7 @@ struct AddCustomFoodView: View {
               let c = perServing(carbs), let f = perServing(fat)
         else { return }
         let fiberValue = fiber.isEmpty ? nil : perServing(fiber)
-        let sodiumValue = sodium.isEmpty ? nil : perServing(sodium)
+        let sodiumValue = salt.isEmpty ? nil : sodiumPerServingMg
         let caffeineValue = caffeine.isEmpty ? nil : perServing(caffeine)
         let cleanName = name.trimmingCharacters(in: .whitespaces)
         let cleanBrand = brand.trimmingCharacters(in: .whitespaces)

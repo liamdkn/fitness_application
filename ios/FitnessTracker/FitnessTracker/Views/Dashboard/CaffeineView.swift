@@ -324,15 +324,15 @@ struct CaffeineSettingsView: View {
             }
             .listRowBackground(AppRowBackground())
 
-            Section("Sodium") {
+            Section("Salt") {
                 Stepper(value: $sodiumLimit, in: 1000...4000, step: 100) {
-                    LabeledContent("Daily limit", value: "\(sodiumLimit) mg")
+                    LabeledContent("Daily limit", value: SaltConversion.label(sodiumMg: Double(sodiumLimit)))
                 }
             }
             .listRowBackground(AppRowBackground())
         }
         .appScreen()
-        .navigationTitle("Caffeine & Sodium")
+        .navigationTitle("Caffeine & Salt")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .onChange(of: bedtime) { save() }

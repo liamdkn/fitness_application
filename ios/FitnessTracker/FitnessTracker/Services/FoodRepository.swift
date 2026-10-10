@@ -135,14 +135,6 @@ struct FoodRepository {
         return foods.filter { !copied.contains($0.id) }
     }
 
-    /// The seeded "Salt" food (0.39 g of sodium per gram), for adding salt to a
-    /// meal in grams. Reading it also keeps it on the phone for offline use.
-    func saltFood() async -> Food? {
-        let found = (try? await search(query: "salt", limit: 30)) ?? []
-        return found.first { $0.name.caseInsensitiveCompare("Salt") == .orderedSame && $0.source == "seed" }
-            ?? Caches.foods.all.first { $0.name.caseInsensitiveCompare("Salt") == .orderedSame && $0.source == "seed" }
-    }
-
     // MARK: Offline-aware reads
     //
     // Every food that comes back from the server is also kept on the phone

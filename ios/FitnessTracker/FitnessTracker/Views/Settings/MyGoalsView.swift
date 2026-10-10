@@ -455,12 +455,14 @@ struct MyGoalsView: View {
             }
             let windowNutrition = try await nutritionRepository.fetchDailyTotals(from: windowStart, to: Date())
             let windowCheckins = (try? await dailyCheckinRepository.fetchRecent(days: tdeeWindowDays)) ?? []
+            let flaggedDates = Set(((try? await DayFlagRepository().fetchRange(from: windowStart, to: Date())) ?? []).map(\.date))
 
             guard let recommendation = AdaptiveTDEEEngine.evaluate(
                 weightLogs: recentWeights,
                 nutritionLogs: windowNutrition,
                 recentCheckins: windowCheckins,
                 goal: currentGoal,
+                flaggedDates: flaggedDates,
                 windowDays: tdeeWindowDays
             ), recommendation.isActionable else {
                 nutritionInsight = nil
@@ -518,9 +520,15 @@ private struct NutritionInsightCard: View {
     }
 
     private var excludedBumpDaysClause: String {
-        guard insight.excludedBumpDays > 0 else { return "." }
-        let noun = insight.excludedBumpDays == 1 ? "day" : "days"
-        return " (excludes \(insight.excludedBumpDays) off-plan-affected \(noun))."
+        var parts: [String] = []
+        if insight.excludedBumpDays > 0 {
+            parts.append("\(insight.excludedBumpDays) off-plan-affected \(insight.excludedBumpDays == 1 ? "day" : "days")")
+        }
+        if insight.excludedFlaggedDays > 0 {
+            parts.append("\(insight.excludedFlaggedDays) sick or untracked \(insight.excludedFlaggedDays == 1 ? "day" : "days")")
+        }
+        guard !parts.isEmpty else { return "." }
+        return " (excludes \(parts.joined(separator: " and ")))."
     }
 
     /// These two numbers can look contradictory at a glance - maintenance

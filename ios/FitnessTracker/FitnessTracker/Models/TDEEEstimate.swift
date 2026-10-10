@@ -21,6 +21,8 @@ struct TDEEEstimate: Codable, Identifiable, Hashable {
     /// (defaults to 0) so this still reads rows saved before the column
     /// existed.
     let excludedBumpDays: Int
+    /// Days left out because they were marked sick or not tracked (0 for older rows).
+    let excludedFlaggedDays: Int
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -34,6 +36,7 @@ struct TDEEEstimate: Codable, Identifiable, Hashable {
         case recommendedCalorieTarget = "recommended_calorie_target"
         case status
         case excludedBumpDays = "excluded_bump_days"
+        case excludedFlaggedDays = "excluded_flagged_days"
     }
 
     init(from decoder: Decoder) throws {
@@ -49,5 +52,6 @@ struct TDEEEstimate: Codable, Identifiable, Hashable {
         recommendedCalorieTarget = try container.decode(Double.self, forKey: .recommendedCalorieTarget)
         status = try container.decode(TDEEEstimateStatus.self, forKey: .status)
         excludedBumpDays = try container.decodeIfPresent(Int.self, forKey: .excludedBumpDays) ?? 0
+        excludedFlaggedDays = try container.decodeIfPresent(Int.self, forKey: .excludedFlaggedDays) ?? 0
     }
 }

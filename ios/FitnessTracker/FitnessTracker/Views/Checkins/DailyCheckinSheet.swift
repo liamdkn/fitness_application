@@ -18,6 +18,11 @@ struct DailyCheckinSheet: View {
     @State private var yesterdayOffPlan = false
     @State private var yesterdayOffPlanNotes = ""
     @State private var yesterdayHungerLevel: Int?
+    /// nil is a normal day; otherwise yesterday is left out of the calorie calculations.
+    @State private var yesterdayStatus: DayStatus?
+    @State private var showingYesterdayMore = false
+    /// Only a status the owner set (or one loaded) is sent back, so an offline check-in can't clear a flag it never saw.
+    @State private var yesterdayStatusTouched = false
     @State private var yesterdaySleepHoursText = ""
     @State private var existingSleepLog: SleepLogRecord?
     @State private var errorMessage: String?
@@ -103,6 +108,17 @@ struct DailyCheckinSheet: View {
                     if yesterdayOffPlan {
                         TextField("What happened?", text: $yesterdayOffPlanNotes, axis: .vertical)
                             .lineLimit(2...4)
+                    }
+
+                    DisclosureGroup("More about yesterday", isExpanded: $showingYesterdayMore) {
+                        Picker("Yesterday was", selection: $yesterdayStatus) {
+                            Text("Normal").tag(DayStatus?.none)
+                            ForEach(DayStatus.allCases) { status in
+                                Text(status.displayName).tag(Optional(status))
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: yesterdayStatus) { yesterdayStatusTouched = true }
                     }
                 }
                 .listRowBackground(AppRowBackground())
@@ -202,6 +218,10 @@ struct DailyCheckinSheet: View {
                     selectedWorkoutChoice = .rest
                 }
             }
+            if let flag = try? await DayFlagRepository().fetch(date: yesterday) {
+                yesterdayStatus = flag.status
+                showingYesterdayMore = true
+            }
             // No weight typed in yet: use this morning's scale reading if there is one.
             if weightText.isEmpty,
                let todays = try? await BodyWeightRepository().fetchRecent(days: 1)
@@ -258,6 +278,7 @@ struct DailyCheckinSheet: View {
             yesterdayOffPlan: yesterdayOffPlan,
             yesterdayOffPlanNotes: yesterdayOffPlan ? yesterdayOffPlanNotes : nil,
             yesterdayHungerLevel: yesterdayHungerLevel,
+            yesterdayStatus: yesterdayStatusTouched ? (yesterdayStatus?.rawValue ?? "normal") : nil,
             sleepMinutes: sleepMinutes
         )
 

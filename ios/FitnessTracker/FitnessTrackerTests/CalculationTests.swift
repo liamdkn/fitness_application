@@ -320,3 +320,20 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite struct FlaggedDaysTests {
+    @Test func flaggedDaysAreLeftOut() {
+        let days = ["2026-10-07", "2026-10-08", "2026-10-09"]
+        let kept = FlaggedDays.removing(days, dateOf: { $0 }, flagged: ["2026-10-08"])
+        #expect(kept == ["2026-10-07", "2026-10-09"])
+    }
+
+    @Test func noFlagsKeepsEverything() {
+        let days = ["2026-10-07", "2026-10-08"]
+        #expect(FlaggedDays.removing(days, dateOf: { $0 }, flagged: []) == days)
+    }
+
+    @Test func anItemWithNoDateIsKept() {
+        #expect(FlaggedDays.removing(["x"], dateOf: { _ in nil }, flagged: ["2026-10-08"]) == ["x"])
+    }
+}
+

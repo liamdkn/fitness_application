@@ -16,6 +16,9 @@ struct QueuedDailyCheckin: Codable {
     let yesterdayOffPlanNotes: String?
     /// 1-5, nil when not rated (and for check-ins queued by older builds).
     let yesterdayHungerLevel: Int?
+    /// How yesterday is flagged: "sick", "not_tracked", or "normal" to clear it. Nil leaves it
+    /// as it is (check-ins queued by older builds).
+    var yesterdayStatus: String? = nil
     /// Only set when the user changed it - an unchanged Health-synced value
     /// isn't written back.
     let sleepMinutes: Int?
@@ -41,6 +44,11 @@ enum DailyCheckinSubmitter {
             yesterdayOffPlanNotes: checkin.yesterdayOffPlanNotes,
             yesterdayHungerLevel: checkin.yesterdayHungerLevel
         )
+
+        if let status = checkin.yesterdayStatus,
+           let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: checkin.date) {
+            try await DayFlagRepository().set(date: yesterday, status: DayStatus(rawValue: status))
+        }
 
         if let weightKg = checkin.weightKg {
             let bodyWeight = BodyWeightRepository()

@@ -20,6 +20,9 @@ struct TDEERecommendation {
     /// the recommendation banner can say so rather than presenting the
     /// trend as if it read every logged weigh-in.
     let excludedBumpDays: Int
+    /// Days in the window the owner marked sick or not tracked: their intake and weigh-ins
+    /// were left out, and they don't count towards the logged days.
+    let excludedFlaggedDays: Int
 
     /// Whether the recommended target differs enough from the current one
     /// to be worth surfacing - avoids nagging over rounding noise.
@@ -49,6 +52,7 @@ enum AdaptiveTDEEEngine {
         nutritionLogs: [NutritionLog],
         recentCheckins: [DailyCheckin],
         goal: UserGoal,
+        flaggedDates: Set<String> = [],
         windowDays: Int = 21,
         asOf: Date = Date()
     ) -> TDEERecommendation? {
@@ -62,13 +66,23 @@ enum AdaptiveTDEEEngine {
         // week without a weigh-in doesn't mute the next reading. Bump-day
         // weigh-ins are dropped first so a temporary off-plan spike can't
         // pose as real weight change.
-        let weightLogsInWindow = weightLogs.filter { $0.loggedAt >= windowStart && $0.loggedAt < windowEnd }
-        let (cleanedWeightLogsInWindow, excludedBumpDays) = OffPlanWeightAdvisor.excludingBumpDates(from: weightLogsInWindow, checkins: recentCheckins)
-        let trendPoints = TrendWeightCalculator.compute(from: cleanedWeightLogsInWindow)
-        let nutritionInWindow = nutritionLogs.filter { log in
-            guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+        // Days marked sick or not tracked: their intake can't be trusted, and a sick day's
+        // weight is mostly fluid, so neither feeds the estimate.
+        let flaggedInWindow = flaggedDates.filter { text in
+            guard let date = DateFormatting.date(fromISODate: text) else { return false }
             return date >= windowStart && date < windowEnd
         }
+        let weightLogsInWindow = FlaggedDays.removing(
+            weightLogs.filter { $0.loggedAt >= windowStart && $0.loggedAt < windowEnd },
+            dateOf: { DateFormatting.isoDate($0.loggedAt) },
+            flagged: flaggedDates
+        )
+        let (cleanedWeightLogsInWindow, excludedBumpDays) = OffPlanWeightAdvisor.excludingBumpDates(from: weightLogsInWindow, checkins: recentCheckins)
+        let trendPoints = TrendWeightCalculator.compute(from: cleanedWeightLogsInWindow)
+        let nutritionInWindow = FlaggedDays.removing(nutritionLogs.filter { log in
+            guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
+            return date >= windowStart && date < windowEnd
+        }, dateOf: { $0.date }, flagged: flaggedDates)
 
         guard trendPoints.count >= minWeighIns,
               hasAdequateNutritionCoverage(nutritionInWindow, windowStart: windowStart, windowDays: windowDays, calendar: calendar)
@@ -99,7 +113,8 @@ enum AdaptiveTDEEEngine {
             estimatedTDEE: estimatedTDEE,
             currentCalorieTarget: goal.dailyCalorieTarget,
             recommendedCalorieTarget: recommended,
-            excludedBumpDays: excludedBumpDays
+            excludedBumpDays: excludedBumpDays,
+            excludedFlaggedDays: flaggedInWindow.count
         )
     }
 

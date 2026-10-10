@@ -337,3 +337,49 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite @MainActor struct NextMealTests {
+    private let day = "2026-10-10"
+    private let breakfast = MealSlot(id: UUID(), name: "Breakfast", sortOrder: 1)
+    private let lunch = MealSlot(id: UUID(), name: "Lunch", sortOrder: 2)
+    private let snacks = MealSlot(id: UUID(), name: "Snacks", sortOrder: 3)
+    private let dinner = MealSlot(id: UUID(), name: "Dinner", sortOrder: 4)
+
+    private func entry(in slot: MealSlot, eaten: Date? = nil) -> MealEntry {
+        MealEntry(id: UUID(), date: day, mealSlotId: slot.id, foodId: UUID(), recipeId: nil, quantity: 1, loggedAt: Date(), eatenAt: eaten)
+    }
+
+    @Test func theFirstMealWithFoodAndNoTimeIsNext() {
+        let slots = [dinner, lunch, breakfast]   // out of order on purpose
+        let entries = [entry(in: lunch), entry(in: dinner), entry(in: breakfast)]
+        #expect(NextMeal.pick(slots: slots, entries: entries)?.name == "Breakfast")
+    }
+
+    @Test func aMealThatAlreadyHasATimeIsSkipped() {
+        let entries = [entry(in: breakfast, eaten: Date()), entry(in: lunch), entry(in: dinner)]
+        #expect(NextMeal.pick(slots: [breakfast, lunch, dinner], entries: entries)?.name == "Lunch")
+    }
+
+    @Test func anEmptyMealIsStillNextSoTheScanCanSayNothingIsTracked() {
+        let entries = [entry(in: dinner)]
+        #expect(NextMeal.pick(slots: [breakfast, lunch, dinner], entries: entries)?.name == "Breakfast")
+    }
+
+    @Test func snacksDrinksAndAnEmptyPreworkoutAreNotInTheOrder() {
+        let preworkout = MealSlot(id: UUID(), name: "Preworkout", sortOrder: 0)
+        let drinks = MealSlot(id: UUID(), name: "Drinks", sortOrder: 0)
+        let entries = [entry(in: snacks), entry(in: drinks), entry(in: breakfast, eaten: Date()), entry(in: lunch, eaten: Date())]
+        #expect(NextMeal.pick(slots: [preworkout, drinks, breakfast, lunch, snacks, dinner], entries: entries)?.name == "Dinner")
+    }
+
+    @Test func aPreworkoutMealWithFoodCountsLikeAnyOther() {
+        let preworkout = MealSlot(id: UUID(), name: "Preworkout", sortOrder: 0)
+        let entries = [entry(in: preworkout)]
+        #expect(NextMeal.pick(slots: [preworkout, breakfast], entries: entries)?.name == "Preworkout")
+    }
+
+    @Test func nothingIsNextWhenEveryMealHasATime() {
+        let entries = [entry(in: breakfast, eaten: Date()), entry(in: lunch, eaten: Date())]
+        #expect(NextMeal.pick(slots: [breakfast, lunch], entries: entries) == nil)
+    }
+}
+

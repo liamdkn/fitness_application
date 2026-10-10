@@ -29,6 +29,18 @@ There's no equivalent intent for supplements yet, and the existing `SupplementRe
 
 Once that intent exists, the Shortcuts/NFC setup is identical to water: a shortcut with "Log Supplement" → pick the supplement → bind to a tag wherever that supplement actually lives (e.g. the kitchen counter next to it, or your gym bag for a pre-workout).
 
+## The meal tag (built): stamp the next meal's eaten time
+
+`FitnessTracker/Intents/LogNextMealIntent.swift` (main app target, so it runs in the app's process with its normal access and stamps the meal straight away - no queue). A scan stamps the current time as `eaten_at` on every food in the next meal of today, in meal order:
+
+- The next meal is the first one with no time yet. Snacks (each food keeps its own time), the Drinks meal and an empty Preworkout meal are not in the order.
+- If that meal has nothing logged, nothing is stamped: it says "You have nothing tracked for <meal> yet", and a scan after adding food stamps it.
+- When every meal has a time it says so and changes nothing. A wrong stamp is cleared with the ✕ on the meal's "Eaten at" row.
+
+Setup, once, no code: Shortcuts -> Automation -> + -> NFC -> scan the tag -> add the "Log Next Meal" action (FitnessTracker) -> turn off "Ask Before Running". The tag can also be written with the link `fitnesstracker://meal/next`, which opens the app and shows the result in an alert.
+
+App Clips were considered and are not needed: they exist for people who don't have the app installed, and need a registered App Clip experience and a web domain, none of which a personal app has.
+
 ## What I'd skip for now
 
 Cardio/incline-walk start-stop over NFC isn't a good fit for the same pattern: a session has live state (pause/resume, steps-during, HR) that only means something while the app or Watch is actually tracking it, so a fire-and-forget queued "start" wouldn't give you anything a Watch-detected session (which the running-plan work already covers) doesn't. If there's a specific friction point there later it's worth its own look, but it's a different shape of problem than "log a fixed amount of something."

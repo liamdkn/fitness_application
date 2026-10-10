@@ -34,10 +34,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 @main
 struct FitnessTrackerApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    /// Shown after a tag opens the app through its link (the Shortcuts route is silent).
+    @State private var scanMessage: String?
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                // A tag written with fitnesstracker://meal/next stamps the next meal.
+                .onOpenURL { url in
+                    guard url.scheme == "fitnesstracker", url.host == "meal", url.path == "/next" else { return }
+                    Task {
+                        do {
+                            scanMessage = MealStampService.message(for: try await MealStampService.stampNextMeal())
+                        } catch {
+                            scanMessage = error.localizedDescription
+                        }
+                    }
+                }
+                .alert("Meal tag", isPresented: Binding(get: { scanMessage != nil }, set: { if !$0 { scanMessage = nil } })) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text(scanMessage ?? "")
+                }
                 #if DEBUG
                 .task { await OfflineQueueSelfTest.runIfRequested() }
                 #endif

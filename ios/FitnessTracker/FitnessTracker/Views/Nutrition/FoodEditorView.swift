@@ -52,6 +52,7 @@ struct AddCustomFoodView: View {
     @State private var categoryOverride: Set<FoodCategory>?
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var showingLabelScanner = false
     private let repository = FoodRepository()
 
     init(
@@ -220,6 +221,9 @@ struct AddCustomFoodView: View {
             .onChange(of: salt) {
                 if !canVerify { isVerified = false }
             }
+            .sheet(isPresented: $showingLabelScanner) {
+                NutritionLabelScannerView(barcode: barcode) { parsed, _ in apply(parsed) }
+            }
         }
     }
 
@@ -325,6 +329,11 @@ struct AddCustomFoodView: View {
 
     private var nutritionSection: some View {
         Section {
+            Button {
+                showingLabelScanner = true
+            } label: {
+                Label("Scan the nutrition label", systemImage: "text.viewfinder")
+            }
             numberField("Calories", text: $calories, unit: "kcal")
             numberField("Protein", text: $protein, unit: "g")
             numberField("Carbs", text: $carbs, unit: "g")
@@ -336,6 +345,25 @@ struct AddCustomFoodView: View {
             Text(basis == .per100 && unitChoice != .other ? "Per 100 \(unitText) (as on the label)" : "Per serving")
         }
         .listRowBackground(AppRowBackground())
+    }
+
+    /// Fills the form from a scanned label: whatever it read replaces what's there, and
+    /// anything it missed is left as it was.
+    private func apply(_ parsed: ParsedNutritionLabel) {
+        if let size = parsed.servingSize {
+            servingSize = Self.formatted(size)
+            let unit = (parsed.servingUnit ?? "g").lowercased()
+            unitChoice = unit == "g" ? .g : (unit == "ml" ? .ml : .other)
+            customUnit = unitChoice == .other ? unit : ""
+            // A 100 g / 100 ml label is per 100; anything else per serving.
+            basis = (unitChoice != .other && size == 100) ? .per100 : .perServing
+        }
+        if let value = parsed.caloriesKcal { calories = Self.formatted(value) }
+        if let value = parsed.proteinG { protein = Self.formatted(value) }
+        if let value = parsed.carbsG { carbs = Self.formatted(value) }
+        if let value = parsed.fatG { fat = Self.formatted(value) }
+        if let value = parsed.fiberG { fiber = Self.formatted(value) }
+        if let mg = parsed.sodiumMg { salt = Self.formatted(SaltConversion.saltG(fromSodiumMg: mg)) }
     }
 
     /// The food's sodium for one serving, in mg: what was loaded if the salt field is

@@ -370,18 +370,22 @@ struct LogFoodQuantityView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editingFood = false
     @State private var quantityText = "1"
-    @State private var inputMode: QuantityInputMode = .servings
+    @State private var inputMode: QuantityInputMode
     private let mealEntryRepository = MealEntryRepository()
     /// The kitchen scale, when one is connected: its reading is the starting amount.
     @State private var scale = BluetoothScale.shared
     /// True while the amount is following the scale; typing in the field takes over.
     @State private var followingScale = false
+    /// The amount text last put there by the app (from the scale), so a different
+    /// value means the owner typed - and the scale stops overwriting it.
+    @State private var programmaticText = ""
     @FocusState private var amountFocused: Bool
     /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
     @State private var skipConversion = false
 
     init(food: Food, mealSlotName: String, carbsRemainingG: Double? = nil, onConfirm: @escaping (Food, Double) -> Void) {
         _food = State(initialValue: food)
+        _inputMode = State(initialValue: Self.startingMode(for: food))
         self.mealSlotName = mealSlotName
         self.carbsRemainingG = carbsRemainingG
         self.onConfirm = onConfirm
@@ -398,7 +402,19 @@ struct LogFoodQuantityView: View {
         return (amount * 10).rounded() / 10
     }
 
-    private var inputModeDefaultsKey: String { "foodQuantityInputMode.\(food.id.uuidString)" }
+    private var inputModeDefaultsKey: String { Self.modeKey(for: food) }
+
+    private static func modeKey(for food: Food) -> String { "foodQuantityInputMode.\(food.id.uuidString)" }
+
+    /// Grams (or ml) for anything weighed - unless this food was switched to servings on
+    /// purpose before. Counted foods (an egg, a slice) start in servings.
+    private static func startingMode(for food: Food) -> QuantityInputMode {
+        if let chosen = UserDefaults.standard.object(forKey: modeKey(for: food)) as? Bool {
+            return chosen ? .amount : .servings
+        }
+        let unit = food.servingUnit.lowercased()
+        return (unit == "g" || unit == "ml") && food.servingSize > 0 ? .amount : .servings
+    }
 
     private var quantity: Double? {
         guard let entered = Double(quantityText) else { return nil }
@@ -524,14 +540,17 @@ struct LogFoodQuantityView: View {
                 scale.match(food)
                 await loadDefaults()
                 if scale.connectedName != nil, scaleAmount != nil { useScale() }
+                // The amount is ready to edit, with the cursor after its last digit.
+                amountFocused = true
             }
             .onChange(of: scale.live) {
                 if followingScale, let amount = scaleAmount, inputMode == .amount {
                     quantityText = formattedQuantity(amount)
+                    programmaticText = quantityText
                 }
             }
-            .onChange(of: amountFocused) { _, focused in
-                if focused { followingScale = false }
+            .onChange(of: quantityText) {
+                if followingScale, quantityText != programmaticText { followingScale = false }
             }
             .fullScreenCover(isPresented: $editingFood) {
                 AddCustomFoodView(onCreated: { updated in food = updated }, reviewing: food)
@@ -546,7 +565,7 @@ struct LogFoodQuantityView: View {
     /// from this user's own `meal_entries` history so it's consistent
     /// across devices.
     private func loadDefaults() async {
-        inputMode = UserDefaults.standard.bool(forKey: inputModeDefaultsKey) ? .amount : .servings
+        inputMode = Self.startingMode(for: food)
         guard let lastQuantity = try? await mealEntryRepository.fetchLastQuantity(foodId: food.id) else { return }
         quantityText = formattedQuantity(inputMode == .amount ? lastQuantity * food.servingSize : lastQuantity)
     }
@@ -560,6 +579,7 @@ struct LogFoodQuantityView: View {
             inputMode = .amount
         }
         quantityText = formattedQuantity(amount)
+        programmaticText = quantityText
         // A remembered weight doesn't move, so there's nothing to follow (or to tare afterwards).
         followingScale = scale.connectedName != nil
     }

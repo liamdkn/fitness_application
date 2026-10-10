@@ -506,6 +506,7 @@ private struct EditMealEntryQuantityView: View {
     @State private var scale = BluetoothScale.shared
     /// "Use the scale" was tapped and the amount not changed since.
     @State private var usedScale = false
+    @FocusState private var amountFocused: Bool
     @State private var ingredients = RecipeIngredientList()
     private let info: EditableFoodInfo?
 
@@ -524,7 +525,13 @@ private struct EditMealEntryQuantityView: View {
         _hasEatenTime = State(initialValue: entry.entry.eatenAt != nil)
         _eatenTime = State(initialValue: entry.entry.displayTime)
         self.info = EditableFoodInfo(entry)
-        _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity))
+        // Grams (or ml) for anything weighed, like when adding it.
+        if let info = self.info, ["g", "ml"].contains(info.servingUnit.lowercased()), info.servingSize > 0 {
+            _inputMode = State(initialValue: .amount)
+            _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity * info.servingSize))
+        } else {
+            _quantityText = State(initialValue: Self.formattedQuantity(entry.entry.quantity))
+        }
     }
 
     private var quantity: Double? {
@@ -555,6 +562,7 @@ private struct EditMealEntryQuantityView: View {
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 70)
+                                .focused($amountFocused)
                             Text(inputMode == .servings ? "\u{00d7} \(servingLabel(info))" : info.servingUnit)
                                 .foregroundStyle(.secondary)
                         }
@@ -620,6 +628,8 @@ private struct EditMealEntryQuantityView: View {
             .scrollDismissesKeyboard(.interactively)
             .onAppear { matchScale() }
             .task {
+                // The amount is ready to edit, with the cursor after its last digit.
+                amountFocused = true
                 if let recipe = entry.recipe { ingredients = await RecipeIngredientList.load(recipe: recipe) }
             }
             .toolbar {

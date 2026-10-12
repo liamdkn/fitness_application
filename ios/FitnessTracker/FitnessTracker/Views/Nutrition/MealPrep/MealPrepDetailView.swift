@@ -24,6 +24,9 @@ struct MealPrepDetailView: View {
 
     let previous: MealPrepSummary?
     let onChange: () -> Void
+    /// The meal and day this was opened from, which "Log a Portion" starts on.
+    var defaultSlot: MealSlot?
+    var defaultDate: Date?
 
     @Environment(\.dismiss) private var dismiss
     @State private var summary: MealPrepSummary
@@ -37,10 +40,13 @@ struct MealPrepDetailView: View {
     private let repository = MealPrepRepository()
     private let groupRepository = FoodGroupRepository()
 
-    init(summary: MealPrepSummary, previous: MealPrepSummary?, onChange: @escaping () -> Void) {
+    init(summary: MealPrepSummary, previous: MealPrepSummary?, onChange: @escaping () -> Void,
+         defaultSlot: MealSlot? = nil, defaultDate: Date? = nil) {
         _summary = State(initialValue: summary)
         self.previous = previous
         self.onChange = onChange
+        self.defaultSlot = defaultSlot
+        self.defaultDate = defaultDate
     }
 
     var body: some View {
@@ -189,7 +195,8 @@ struct MealPrepDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadIngredients() }
         .sheet(isPresented: $showingLogSheet) {
-            LogPrepPortionView(summary: summary, fixedSlot: nil, fixedDate: nil) { quantity, slot, date in
+            LogPrepPortionView(summary: summary, fixedSlot: nil, fixedDate: nil,
+                               initialSlotId: defaultSlot?.id, initialDate: defaultDate) { quantity, slot, date in
                 Task { await logPortion(quantity: quantity, slot: slot, date: date) }
             }
         }

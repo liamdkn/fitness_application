@@ -137,7 +137,8 @@ struct SavedMealPickerView: View {
             }
             .sheet(item: $viewingPrep) { summary in
                 NavigationStack {
-                    MealPrepDetailView(summary: summary, previous: nil, onChange: { Task { await load() } })
+                    MealPrepDetailView(summary: summary, previous: nil, onChange: { Task { await load() } },
+                                       defaultSlot: stock?.slot, defaultDate: stock?.date)
                 }
             }
             .sheet(item: $recategorizing) { savedMeal in

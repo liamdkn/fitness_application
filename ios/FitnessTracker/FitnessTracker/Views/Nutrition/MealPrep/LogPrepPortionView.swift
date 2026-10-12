@@ -12,6 +12,9 @@ struct LogPrepPortionView: View {
     /// screen); `nil` shows pickers for both (logging from the prep itself).
     let fixedSlot: MealSlot?
     let fixedDate: Date?
+    /// What the pickers start on when they're shown: the meal and day you came from.
+    var initialSlotId: UUID? = nil
+    var initialDate: Date? = nil
     let onLog: (Double, MealSlot, Date) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -122,7 +125,8 @@ struct LogPrepPortionView: View {
             .task {
                 guard fixedSlot == nil else { return }
                 slots = (try? await MealSlotsRepository().fetchAll()) ?? []
-                selectedSlotId = slots.first?.id
+                selectedSlotId = slots.first(where: { $0.id == initialSlotId })?.id ?? slots.first?.id
+                if let initialDate { date = initialDate }
             }
         }
         .presentationDetents([.large])

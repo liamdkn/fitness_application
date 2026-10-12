@@ -110,7 +110,7 @@ struct FoodDatabaseView: View {
     }
 
     private func detail(_ food: Food) -> String {
-        "\(Int(food.calories)) kcal per \(food.servingLabel) \u{00b7} P \(Int(food.proteinG.rounded())) \u{00b7} C \(Int(food.carbsG.rounded())) \u{00b7} F \(Int(food.fatG.rounded()))"
+        "\(Int(food.calories)) kcal per \(food.servingLabel) \u{00b7} P \(Int(food.proteinG.rounded())) \u{00b7} C \(Int(food.carbsG.rounded())) \u{00b7} F \(Int(food.fatG.rounded())) \u{00b7} \(food.provenanceLabel)"
     }
 
     private func load() async {

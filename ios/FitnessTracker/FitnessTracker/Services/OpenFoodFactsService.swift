@@ -22,6 +22,11 @@ enum OpenFoodFactsService {
         /// A beverage (drink, milk, water) as opposed to a liquid ingredient
         /// like oil or sauce - decided by Open Food Facts' categories.
         let isDrink: Bool
+        /// Finer detail per 100, when the product has it.
+        var sugarG: Double? = nil
+        var saturatedFatG: Double? = nil
+        var cholesterolMg: Double? = nil
+        var potassiumMg: Double? = nil
 
         /// What the per-100 figures are per - measured out in ml, not g.
         var servingUnit: String { isLiquid ? "ml" : "g" }
@@ -70,7 +75,11 @@ enum OpenFoodFactsService {
             sodiumMg: product.nutriments?.sodiumMg,
             caffeineMg: product.nutriments?.caffeineMg,
             isLiquid: isLiquid(quantity: product.quantity, categories: product.categoriesTags),
-            isDrink: isDrink(categories: product.categoriesTags)
+            isDrink: isDrink(categories: product.categoriesTags),
+            sugarG: product.nutriments?.sugars100g,
+            saturatedFatG: product.nutriments?.saturatedFat100g,
+            cholesterolMg: product.nutriments?.cholesterolMg,
+            potassiumMg: product.nutriments?.potassiumMg
         )
     }
 
@@ -121,7 +130,11 @@ enum OpenFoodFactsService {
                     sodiumMg: hit.nutriments?.sodiumMg,
                     caffeineMg: hit.nutriments?.caffeineMg,
                     isLiquid: isLiquid(quantity: hit.quantity, categories: hit.categoriesTags),
-                    isDrink: isDrink(categories: hit.categoriesTags)
+                    isDrink: isDrink(categories: hit.categoriesTags),
+                    sugarG: hit.nutriments?.sugars100g,
+                    saturatedFatG: hit.nutriments?.saturatedFat100g,
+                    cholesterolMg: hit.nutriments?.cholesterolMg,
+                    potassiumMg: hit.nutriments?.potassiumMg
                 )
             )
         }
@@ -200,6 +213,14 @@ enum OpenFoodFactsService {
         let sodium100g: Double?
         let salt100g: Double?
         let caffeine100g: Double?
+        let sugars100g: Double?
+        let saturatedFat100g: Double?
+        let cholesterol100g: Double?
+        let potassium100g: Double?
+
+        /// Cholesterol and potassium in mg per 100 - OFF reports grams.
+        var cholesterolMg: Double? { cholesterol100g.map { ($0 * 1000 * 100).rounded() / 100 } }
+        var potassiumMg: Double? { potassium100g.map { ($0 * 1000 * 100).rounded() / 100 } }
 
         /// Caffeine in mg per 100 - OFF reports grams, like sodium.
         var caffeineMg: Double? {
@@ -226,6 +247,10 @@ enum OpenFoodFactsService {
             sodium100g = try? c.decodeIfPresent(Double.self, forKey: .sodium100g)
             salt100g = try? c.decodeIfPresent(Double.self, forKey: .salt100g)
             caffeine100g = try? c.decodeIfPresent(Double.self, forKey: .caffeine100g)
+            sugars100g = try? c.decodeIfPresent(Double.self, forKey: .sugars100g)
+            saturatedFat100g = try? c.decodeIfPresent(Double.self, forKey: .saturatedFat100g)
+            cholesterol100g = try? c.decodeIfPresent(Double.self, forKey: .cholesterol100g)
+            potassium100g = try? c.decodeIfPresent(Double.self, forKey: .potassium100g)
         }
 
         enum CodingKeys: String, CodingKey {
@@ -237,6 +262,10 @@ enum OpenFoodFactsService {
             case sodium100g = "sodium_100g"
             case salt100g = "salt_100g"
             case caffeine100g = "caffeine_100g"
+            case sugars100g = "sugars_100g"
+            case saturatedFat100g = "saturated-fat_100g"
+            case cholesterol100g = "cholesterol_100g"
+            case potassium100g = "potassium_100g"
         }
     }
 }

@@ -66,6 +66,12 @@ struct Food: Codable, Identifiable, Hashable {
     let isVerified: Bool
     /// Sodium per serving, in mg. `nil` = not recorded yet (distinct from 0).
     let sodiumMg: Double?
+    /// Finer detail per serving - `nil` = not recorded (distinct from 0). Filled for
+    /// seeded foods and for Open Food Facts rows when the source has it.
+    let sugarG: Double?
+    let saturatedFatG: Double?
+    let cholesterolMg: Double?
+    let potassiumMg: Double?
     /// Caffeine per serving, in mg. `nil` = not recorded (distinct from 0).
     let caffeineMg: Double?
     /// The shared catalog row this is a personal copy of, if any - used to
@@ -94,6 +100,10 @@ struct Food: Codable, Identifiable, Hashable {
         case createdBy = "created_by"
         case isVerified = "is_verified"
         case sodiumMg = "sodium_mg"
+        case sugarG = "sugar_g"
+        case saturatedFatG = "saturated_fat_g"
+        case cholesterolMg = "cholesterol_mg"
+        case potassiumMg = "potassium_mg"
         case caffeineMg = "caffeine_mg"
         case sourceFoodId = "source_food_id"
     }
@@ -108,6 +118,8 @@ struct Food: Codable, Identifiable, Hashable {
     func fiberG(at quantity: Double) -> Double? { fiberG.map { $0 * quantity } }
     func sodiumMg(at quantity: Double) -> Double? { sodiumMg.map { $0 * quantity } }
     func caffeineMg(at quantity: Double) -> Double? { caffeineMg.map { $0 * quantity } }
+    func sugarG(at quantity: Double) -> Double? { sugarG.map { $0 * quantity } }
+    func saturatedFatG(at quantity: Double) -> Double? { saturatedFatG.map { $0 * quantity } }
 
     /// The one a meal lists this food under: protein before carb before fat.
     var primaryCategory: FoodCategory? { categories.first }
@@ -141,6 +153,10 @@ struct Food: Codable, Identifiable, Hashable {
         createdBy = try c.decodeIfPresent(UUID.self, forKey: .createdBy)
         isVerified = try c.decode(Bool.self, forKey: .isVerified)
         sodiumMg = try c.decodeIfPresent(Double.self, forKey: .sodiumMg)
+        sugarG = try c.decodeIfPresent(Double.self, forKey: .sugarG)
+        saturatedFatG = try c.decodeIfPresent(Double.self, forKey: .saturatedFatG)
+        cholesterolMg = try c.decodeIfPresent(Double.self, forKey: .cholesterolMg)
+        potassiumMg = try c.decodeIfPresent(Double.self, forKey: .potassiumMg)
         caffeineMg = try c.decodeIfPresent(Double.self, forKey: .caffeineMg)
         sourceFoodId = try c.decodeIfPresent(UUID.self, forKey: .sourceFoodId)
         isDrink = try c.decodeIfPresent(Bool.self, forKey: .isDrink) ?? servingUnit.lowercased().hasPrefix("ml")
@@ -188,6 +204,18 @@ enum AmountLabel {
 }
 
 extension Food {
+    /// Where the numbers came from, so how far to trust them is visible. Matches the
+    /// food database brief: a corrected personal copy first, then by source.
+    var provenanceLabel: String {
+        if sourceFoodId != nil { return "Your correction" }
+        switch source {
+        case "nutritionix": return isVerified ? "Verified \u{00b7} Nutritionix" : "Nutritionix"
+        case "off": return "Community \u{00b7} Open Food Facts"
+        case "seed": return "Built-in"
+        default: return "Your entry"   // user, ocr, quick add
+        }
+    }
+
     func amountLabel(at quantity: Double) -> String {
         AmountLabel.text(quantity: quantity, servingSize: servingSize, servingUnit: servingUnit, servingLabel: servingLabel)
     }

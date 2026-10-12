@@ -243,7 +243,7 @@ struct FoodPickerView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(food.displayName)
                     .foregroundStyle(Color.primary)
-                Text("\(Int(food.calories)) kcal per \(food.servingLabel)")
+                Text("\(Int(food.calories)) kcal per \(food.servingLabel) \u{00b7} \(food.provenanceLabel)")
                     .font(.caption)
                     .foregroundStyle(Color.secondary)
             }
@@ -379,6 +379,9 @@ struct LogFoodQuantityView: View {
     /// The amount text last put there by the app (from the scale), so a different
     /// value means the owner typed - and the scale stops overwriting it.
     @State private var programmaticText = ""
+    /// Count-based sizes ("1 medium") this food has, and the one picked (nil = by weight).
+    @State private var sizes: [FoodServing] = []
+    @State private var selectedSize: FoodServing?
     @FocusState private var amountFocused: Bool
     /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
     @State private var skipConversion = false
@@ -416,8 +419,13 @@ struct LogFoodQuantityView: View {
         return (unit == "g" || unit == "ml") && food.servingSize > 0 ? .amount : .servings
     }
 
-    private var quantity: Double? {
-        guard let entered = Double(quantityText) else { return nil }
+    private var quantity: Double? { quantity(using: selectedSize, text: quantityText) }
+
+    /// The servings multiplier for what's typed: a count of the picked size, or a servings
+    /// or amount figure.
+    private func quantity(using size: FoodServing?, text: String) -> Double? {
+        guard let entered = Double(text) else { return nil }
+        if let size { return food.servingSize > 0 ? entered * size.grams / food.servingSize : nil }
         switch inputMode {
         case .servings: return entered
         case .amount: return food.servingSize > 0 ? entered / food.servingSize : nil
@@ -432,6 +440,7 @@ struct LogFoodQuantityView: View {
                     if let brand = food.brand, !brand.isEmpty {
                         LabeledContent("Brand", value: brand)
                     }
+                    LabeledContent("Source", value: food.provenanceLabel)
                     if food.isVerified {
                         Label("Verified", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(AppColor.success)
@@ -445,15 +454,34 @@ struct LogFoodQuantityView: View {
                         if skipConversion { skipConversion = false } else { convertQuantityText(from: oldMode, to: newMode) }
                         UserDefaults.standard.set(newMode == .amount, forKey: inputModeDefaultsKey)
                     }
+                    if !sizes.isEmpty {
+                        Picker("Measure by", selection: $selectedSize) {
+                            Text("Weight").tag(FoodServing?.none)
+                            ForEach(sizes) { size in
+                                Text(size.label).tag(Optional(size))
+                            }
+                        }
+                        .onChange(of: selectedSize) { old, new in
+                            let before = quantity(using: old, text: quantityText)
+                            if new != nil {
+                                quantityText = "1"
+                                programmaticText = "1"
+                                followingScale = false
+                            } else if let before {
+                                quantityText = formattedQuantity(inputMode == .amount ? before * food.servingSize : before)
+                            }
+                        }
+                    }
                     HStack {
-                        Text(inputMode == .servings ? "Servings" : "Amount")
+                        Text(selectedSize != nil ? "How many" : (inputMode == .servings ? "Servings" : "Amount"))
                         Spacer()
                         TextField("1", text: $quantityText)
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 70)
                             .focused($amountFocused)
-                        Text(inputMode == .servings ? "\u{00d7} \(food.servingLabel)" : food.servingUnit)
+                        Text(selectedSize.map { "\u{00d7} \($0.label)" }
+                             ?? (inputMode == .servings ? "\u{00d7} \(food.servingLabel)" : food.servingUnit))
                             .foregroundStyle(.secondary)
                     }
                     if let onScale = scaleAmount {
@@ -499,6 +527,12 @@ struct LogFoodQuantityView: View {
                         if let fiber = food.fiberG(at: quantity) {
                             LabeledContent("Fiber", value: "\(Int(fiber))g")
                         }
+                        if let sugar = food.sugarG(at: quantity) {
+                            LabeledContent("Sugar", value: "\(AmountLabel.trimmed(sugar))g")
+                        }
+                        if let saturated = food.saturatedFatG(at: quantity) {
+                            LabeledContent("Saturated fat", value: "\(AmountLabel.trimmed(saturated))g")
+                        }
                         if let sodium = food.sodiumMg(at: quantity) {
                             LabeledContent("Salt", value: SaltConversion.label(sodiumMg: sodium))
                         }
@@ -537,6 +571,7 @@ struct LogFoodQuantityView: View {
                 }
             }
             .task {
+                sizes = await FoodRepository().fetchServings(foodId: food.id)
                 scale.match(food)
                 await loadDefaults()
                 if scale.connectedName != nil, scaleAmount != nil { useScale() }
@@ -574,6 +609,7 @@ struct LogFoodQuantityView: View {
     /// The user still has to press Add.
     private func useScale() {
         guard let amount = scaleAmount else { return }
+        selectedSize = nil
         if inputMode != .amount {
             skipConversion = true
             inputMode = .amount

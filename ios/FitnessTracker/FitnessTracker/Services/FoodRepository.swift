@@ -16,6 +16,10 @@ struct FoodRepository {
         let fiber_g: Double?
         let sodium_mg: Double?
         let caffeine_mg: Double?
+        let sugar_g: Double?
+        let saturated_fat_g: Double?
+        let cholesterol_mg: Double?
+        let potassium_mg: Double?
         let barcode: String?
         let source: String
         let is_custom: Bool
@@ -40,6 +44,10 @@ struct FoodRepository {
         let fiber_g: Double?
         let sodium_mg: Double?
         let caffeine_mg: Double?
+        let sugar_g: Double?
+        let saturated_fat_g: Double?
+        let cholesterol_mg: Double?
+        let potassium_mg: Double?
         let barcode: String
         let source: String
         let is_custom: Bool
@@ -282,6 +290,10 @@ struct FoodRepository {
             if let own = existing.first { target = own }
         }
         guard target.isCustom, target.createdBy == userId else {
+            // The copy keeps the original's finer detail, rescaled if the serving size was
+            // changed (and dropped if the unit was, since the figures can't be compared).
+            let factor: Double? = servingUnit == food.servingUnit && food.servingSize > 0 ? servingSize / food.servingSize : nil
+            func carried(_ value: Double?) -> Double? { value.flatMap { v in factor.map { ((v * $0) * 100).rounded() / 100 } } }
             return try await createCustom(
                 name: name,
                 brand: brand,
@@ -298,7 +310,11 @@ struct FoodRepository {
                 sourceFoodId: food.isCustom ? food.sourceFoodId : food.id,
                 barcode: food.barcode,
                 isDrink: drink,
-                categories: resolvedCategories
+                categories: resolvedCategories,
+                sugarG: carried(food.sugarG),
+                saturatedFatG: carried(food.saturatedFatG),
+                cholesterolMg: carried(food.cholesterolMg),
+                potassiumMg: carried(food.potassiumMg)
             )
         }
         let updated: [Food] = try await client
@@ -344,6 +360,10 @@ struct FoodRepository {
                 fiber_g: lookup.fiberG,
                 sodium_mg: lookup.sodiumMg,
                 caffeine_mg: lookup.caffeineMg,
+                sugar_g: lookup.sugarG,
+                saturated_fat_g: lookup.saturatedFatG,
+                cholesterol_mg: lookup.cholesterolMg,
+                potassium_mg: lookup.potassiumMg,
                 barcode: barcode,
                 source: "off",
                 is_custom: false,
@@ -407,6 +427,18 @@ struct FoodRepository {
     /// professionally verified source) but is distinguishable from a
     /// typed-by-hand entry, and doubles as a barcode cache hit for next
     /// time if one was scanned.
+    /// The count-based size options for a food ("1 medium"), if it has any. Empty on
+    /// any failure, so a missing table or no connection just means grams only.
+    func fetchServings(foodId: UUID) async -> [FoodServing] {
+        (try? await client
+            .from("food_servings")
+            .select()
+            .eq("food_id", value: foodId)
+            .order("sort_order")
+            .execute()
+            .value) ?? []
+    }
+
     @discardableResult
     func createCustom(
         name: String,
@@ -425,7 +457,11 @@ struct FoodRepository {
         barcode: String? = nil,
         source: String = "user",
         isDrink: Bool = false,
-        categories: [FoodCategory]? = nil
+        categories: [FoodCategory]? = nil,
+        sugarG: Double? = nil,
+        saturatedFatG: Double? = nil,
+        cholesterolMg: Double? = nil,
+        potassiumMg: Double? = nil
     ) async throws -> Food {
         let userId = try await client.auth.session.user.id
         let inserted: [Food] = try await client
@@ -442,6 +478,10 @@ struct FoodRepository {
                 fiber_g: fiberG,
                 sodium_mg: sodiumMg,
                 caffeine_mg: caffeineMg,
+                sugar_g: sugarG,
+                saturated_fat_g: saturatedFatG,
+                cholesterol_mg: cholesterolMg,
+                potassium_mg: potassiumMg,
                 barcode: barcode,
                 source: source,
                 is_custom: true,

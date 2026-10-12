@@ -383,3 +383,36 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite struct FoodDetailTests {
+    private func food(_ extra: String = "", source: String = "seed", isVerified: Bool = false, sourceFoodId: String? = nil) throws -> Food {
+        let id = "00000000-0000-0000-0000-000000000001"
+        let json = """
+        {"id":"\(id)","name":"Banana","brand":null,"serving_size":118,"serving_unit":"g","calories":105,
+         "protein_g":1.3,"carbs_g":27,"fat_g":0.4,"fiber_g":3.1,"barcode":null,"source":"\(source)",
+         "is_custom":false,"created_by":null,"is_verified":\(isVerified),"sodium_mg":null,"caffeine_mg":null,
+         "source_food_id":\(sourceFoodId.map { "\"\($0)\"" } ?? "null")\(extra)}
+        """
+        return try JSONDecoder().decode(Food.self, from: Data(json.utf8))
+    }
+
+    @Test func detailFieldsDecodeWhenPresentAndAreNilWhenAbsent() throws {
+        let plain = try food()
+        #expect(plain.sugarG == nil && plain.saturatedFatG == nil && plain.cholesterolMg == nil && plain.potassiumMg == nil)
+        let detailed = try food(#","sugar_g":14.4,"saturated_fat_g":0.1,"cholesterol_mg":0,"potassium_mg":422"#)
+        #expect(detailed.sugarG == 14.4)
+        #expect(detailed.sugarG(at: 2) == 28.8)
+        #expect(detailed.cholesterolMg == 0)
+        #expect(detailed.potassiumMg == 422)
+    }
+
+    @Test func provenanceSaysWhereTheNumbersCameFrom() throws {
+        #expect(try food(source: "seed").provenanceLabel == "Built-in")
+        #expect(try food(source: "off").provenanceLabel == "Community \u{00b7} Open Food Facts")
+        #expect(try food(source: "nutritionix", isVerified: true).provenanceLabel == "Verified \u{00b7} Nutritionix")
+        #expect(try food(source: "nutritionix", isVerified: false).provenanceLabel == "Nutritionix")
+        #expect(try food(source: "user").provenanceLabel == "Your entry")
+        #expect(try food(source: "ocr").provenanceLabel == "Your entry")
+        #expect(try food(source: "user", sourceFoodId: "00000000-0000-0000-0000-000000000002").provenanceLabel == "Your correction")
+    }
+}
+

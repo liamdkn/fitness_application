@@ -42,7 +42,7 @@ struct CopyMealView: View {
                     set: { sourceSlotId = $0; rebuild() }
                 )) {
                     ForEach(slots) { option in
-                        Text(option.id == slot.id ? "\(option.name) (this meal)" : option.name).tag(option.id)
+                        Text(option.name).tag(option.id)
                     }
                 }
                 .listRowBackground(AppRowBackground())

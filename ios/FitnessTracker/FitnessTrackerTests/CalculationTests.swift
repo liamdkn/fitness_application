@@ -416,3 +416,37 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite struct RunTotalDistanceTests {
+    private func run(distance: Double?, warmupKm: Double? = nil, cooldownKm: Double? = nil, warmupMin: Int? = nil) throws -> PlannedRun {
+        func number(_ value: Double?) -> String { value.map { "\($0)" } ?? "null" }
+        let json = """
+        {"id":"00000000-0000-0000-0000-000000000001","running_plan_id":"00000000-0000-0000-0000-000000000002",
+         "date":"2026-10-14","run_type":"easy","target_distance_km":\(number(distance)),"target_duration_min":null,
+         "notes":null,"warmup_km":\(number(warmupKm)),"cooldown_km":\(number(cooldownKm)),
+         "warmup_min":\(warmupMin.map(String.init) ?? "null")}
+        """
+        return try JSONDecoder().decode(PlannedRun.self, from: Data(json.utf8))
+    }
+
+    @Test func warmUpAndCoolDownComeOutOfTheTotal() throws {
+        let planned = try run(distance: 9, warmupKm: 1.5, cooldownKm: 1)
+        #expect(planned.mainDistanceKm == 6.5)
+    }
+
+    @Test func noWarmUpMeansTheWholeTotalIsMain() throws {
+        #expect(try run(distance: 8).mainDistanceKm == 8)
+    }
+
+    @Test func aWarmUpSetByTimeDoesNotReduceADistance() throws {
+        #expect(try run(distance: 8, warmupMin: 10).mainDistanceKm == 8)
+    }
+
+    @Test func theMainPartNeverGoesNegative() throws {
+        #expect(try run(distance: 2, warmupKm: 1.5, cooldownKm: 1.5).mainDistanceKm == 0)
+    }
+
+    @Test func noTotalMeansNoMainDistance() throws {
+        #expect(try run(distance: nil, warmupKm: 1).mainDistanceKm == nil)
+    }
+}
+

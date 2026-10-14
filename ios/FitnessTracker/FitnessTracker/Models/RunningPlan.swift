@@ -143,6 +143,14 @@ struct PlannedRun: Codable, Identifiable, Hashable {
 
     var day: Date { DateFormatting.date(fromISODate: date) ?? Date() }
 
+    /// The main part of the run in km: the total less a warm-up and cool-down set by
+    /// distance, which are part of the total, not on top of it. A warm-up set by time
+    /// can't be taken off a distance, so it doesn't reduce this. Nil without a total.
+    var mainDistanceKm: Double? {
+        guard let targetDistanceKm else { return nil }
+        return max(targetDistanceKm - max(warmupKm ?? 0, 0) - max(cooldownKm ?? 0, 0), 0)
+    }
+
     /// The plan's implied average pace when both distance and duration have
     /// been entered. The watch workout uses this as its target pace alert.
     var targetPaceLabel: String? {
@@ -159,6 +167,10 @@ struct PlannedRun: Codable, Identifiable, Hashable {
         var parts: [String] = []
         if let warmupKm {
             if warmupKm > 0 { parts.append("Warm-up \(RunFormat.km(warmupKm))" + (warmupPaceSec.map { " @ " + PaceText.format($0) } ?? "")) }
+            // The warm-up is inside the total, so the main part is what's left.
+            if (warmupKm > 0 || (cooldownKm ?? 0) > 0), blocks?.isEmpty != false, let main = mainDistanceKm {
+                parts.append("Main \(RunFormat.km(main))")
+            }
         } else if let warmupMin, warmupMin > 0 {
             parts.append("Warm-up \(warmupMin) min" + (warmupPaceSec.map { " @ " + PaceText.format($0) } ?? ""))
         }

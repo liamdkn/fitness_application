@@ -132,7 +132,8 @@ struct RunWorkoutSyncService {
             }
         } else {
             let workGoal: WorkoutGoal
-            if let distanceKm = run.targetDistanceKm, distanceKm > 0 {
+            // The total includes the warm-up and cool-down, so the main step is what's left of it.
+            if let distanceKm = run.mainDistanceKm, distanceKm > 0 {
                 workGoal = .distance(distanceKm * 1000, .meters)
             } else if let durationMinutes = run.targetDurationMin, durationMinutes > 0 {
                 workGoal = .time(Double(durationMinutes * 60), .seconds)

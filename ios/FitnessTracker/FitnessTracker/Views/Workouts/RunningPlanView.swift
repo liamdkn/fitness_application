@@ -547,13 +547,22 @@ private struct PlannedRunEditSheet: View {
                 if runType != .rest {
                     Section("Target (either or both)") {
                         HStack {
-                            Text("Distance")
+                            Text("Total distance")
                             Spacer()
                             TextField("-", text: $distanceText)
                                 .keyboardType(.decimalPad)
                                 .multilineTextAlignment(.trailing)
                                 .frame(width: 70)
                             Text("km").foregroundStyle(.secondary)
+                        }
+                        if let total = Double(distanceText), let main = mainPartKm(total: total) {
+                            HStack {
+                                Text("Main part")
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                                Text(RunFormat.km(max(main, 0)))
+                                    .foregroundStyle(main <= 0 ? AppColor.warning : .secondary)
+                            }
                         }
                         HStack {
                             Text("Time")
@@ -663,6 +672,15 @@ private struct PlannedRunEditSheet: View {
         }
     }
 
+    /// What's left of the total once a warm-up and cool-down set by distance are taken out of it;
+    /// nil when neither is set by distance.
+    private func mainPartKm(total: Double) -> Double? {
+        let warmup = warmupByDistance ? Self.parsedKm(warmupKmText) : nil
+        let cooldown = cooldownByDistance ? Self.parsedKm(cooldownKmText) : nil
+        guard warmup != nil || cooldown != nil else { return nil }
+        return total - (warmup ?? 0) - (cooldown ?? 0)
+    }
+
     /// Kilometres typed as "1.5" or "1,5", kept to a sensible range; nil if not a number.
     private static func parsedKm(_ text: String) -> Double? {
         Double(text.replacingOccurrences(of: ",", with: ".")).map { min(max($0, 0), 20) }
@@ -727,6 +745,10 @@ private struct PlannedRunEditSheet: View {
         let isRest = runType == .rest
         if runType != .rest, (warmupByDistance && Self.parsedKm(warmupKmText) == nil) || (cooldownByDistance && Self.parsedKm(cooldownKmText) == nil) {
             errorMessage = "Enter the warm-up and cool-down distances in km, or switch them back to time."
+            return
+        }
+        if let total = distance, let main = mainPartKm(total: total), main <= 0 {
+            errorMessage = "The warm-up and cool-down take up the whole run. Raise the total distance, or shorten them."
             return
         }
         let segments = RunningPlanRepository.Segments(

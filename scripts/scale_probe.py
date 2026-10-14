@@ -26,6 +26,9 @@ more) next to the scale and follow the on-screen prompts:
     python scale_probe.py --tare    # the same with the tare command (leave something on the scale)
     python scale_probe.py --watch   # print only what changes (weight, unit, flags) and any other
                                     # message, for 60 s: press TARE, lift things, press the buttons
+    python scale_probe.py --scan    # list every Bluetooth device nearby (a new scale shows up here)
+    python scale_probe.py --dump "NAME"   # connect to any device by name, list what it offers, and print
+                                          # everything it sends for 60 s while you weigh things
     python scale_probe.py --foods   # upload three foods into the scale's own food list (Oats, Whole Milk,
                                     # Banana, with macros) and watch for 60 s while you try the scale's
                                     # food mode and its arrow buttons
@@ -367,7 +370,70 @@ async def clear_foods():
         print("Done.")
 
 
+async def scan_all():
+    print("Scanning for 12 seconds - wake the scale first ...\n", flush=True)
+    found = await BleakScanner.discover(timeout=12, return_adv=True)
+    rows = sorted(found.values(), key=lambda pair: -pair[1].rssi)
+    for device, adv in rows:
+        name = device.name or adv.local_name or "(no name)"
+        services = ", ".join(adv.service_uuids) if adv.service_uuids else ""
+        manufacturer = " ".join(f"{k:04x}:{v.hex()}" for k, v in adv.manufacturer_data.items())
+        print(f"{adv.rssi:>4} dBm  {name:<28} {device.address}")
+        if services:
+            print(f"          services: {services}")
+        if manufacturer:
+            print(f"          manufacturer data: {manufacturer}")
+
+
+async def dump_device(name: str):
+    print(f"Looking for {name} ...", flush=True)
+    device = await BleakScanner.find_device_by_name(name, timeout=20)
+    if device is None:
+        sys.exit("Not found. Wake the scale, and close its own app.")
+    started = time.time()
+    async with BleakClient(device) as client:
+        print(f"Connected to {device.name} {device.address}\n", flush=True)
+        for service in client.services:
+            print(f"service {service.uuid}")
+            for char in service.characteristics:
+                props = ",".join(char.properties)
+                value = ""
+                if "read" in char.properties:
+                    try:
+                        value = " = " + bytes(await client.read_gatt_char(char)).hex(" ")
+                    except Exception as error:
+                        value = f" (read failed: {error})"
+                print(f"   {char.uuid}  [{props}]{value}")
+
+        def show(char):
+            def handler(_, data: bytearray):
+                print(f"[{time.time() - started:5.1f}s] {str(char.uuid)[:8]}: {bytes(data).hex(' ')}", flush=True)
+            return handler
+
+        subscribed = 0
+        for service in client.services:
+            for char in service.characteristics:
+                # The firmware-update service is never touched.
+                if str(char.uuid).lower().startswith("0000153"):
+                    continue
+                if "notify" in char.properties or "indicate" in char.properties:
+                    try:
+                        await client.start_notify(char, show(char))
+                        subscribed += 1
+                    except Exception as error:
+                        print(f"   could not subscribe to {char.uuid}: {error}")
+        print(f"\nListening on {subscribed} channels for 60 s. Put something on the scale, take it off, press TARE and the buttons.\n", flush=True)
+        await asyncio.sleep(60)
+        print("\nDone.")
+
+
 if __name__ == "__main__":
+    if "--scan" in sys.argv:
+        asyncio.run(scan_all())
+        sys.exit()
+    if "--dump" in sys.argv:
+        asyncio.run(dump_device(sys.argv[sys.argv.index("--dump") + 1]))
+        sys.exit()
     if "--clear-foods" in sys.argv:
         asyncio.run(clear_foods())
         sys.exit()

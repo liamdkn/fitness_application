@@ -538,3 +538,30 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite @MainActor struct OffPlanExclusionTests {
+    private func checkin(_ date: String, offPlan: Bool) throws -> DailyCheckin {
+        let json = """
+        {"id":"\(UUID().uuidString)","checkin_date":"\(date)","weight_kg":null,"routine_day_id":null,"workout_choice_label":null,
+         "is_rest_day":false,"energy_level":null,"soreness_level":null,"yesterday_water_ml":null,
+         "yesterday_off_plan":\(offPlan),"yesterday_off_plan_notes":null}
+        """
+        return try JSONDecoder().decode(DailyCheckin.self, from: Data(json.utf8))
+    }
+
+    @Test func aCheckinOnDFlagsTheDayBefore() throws {
+        let days = OffPlanDays.days(from: [try checkin("2026-10-10", offPlan: true), try checkin("2026-10-11", offPlan: false)])
+        #expect(days == ["2026-10-09"])
+    }
+
+    @Test func theOffPlanDayAndTheDayAfterAreUntrusted() throws {
+        let days = OffPlanDays.untrustedIntakeDays(from: [try checkin("2026-10-10", offPlan: true)])
+        #expect(days == ["2026-10-09", "2026-10-10"])
+    }
+
+    @Test func aQuarterOfTheWindowIsTheLimit() {
+        #expect(!AdaptiveTDEEEngine.tooMuchExcluded(days: 5, windowDays: 21))
+        #expect(AdaptiveTDEEEngine.tooMuchExcluded(days: 6, windowDays: 21))
+        #expect(!AdaptiveTDEEEngine.tooMuchExcluded(days: 0, windowDays: 21))
+    }
+}
+

@@ -43,6 +43,14 @@ enum AdaptiveTDEEEngine {
     private static let minWeighIns = 8
     private static let minimumNutritionDaysPerWeek = 5
 
+    /// More of the window than this left out and there isn't enough left to base a new target on.
+    static let maxExcludedShare = 0.25
+
+    /// Whether too much of the window was left out to trust what remains.
+    static func tooMuchExcluded(days: Int, windowDays: Int) -> Bool {
+        windowDays > 0 && Double(days) / Double(windowDays) > maxExcludedShare
+    }
+
     /// Cap on how far a single recommendation can move the target from the
     /// current one, so one noisy window can't whipsaw the user's calories.
     private static let maxStepKcal = 150.0
@@ -53,6 +61,7 @@ enum AdaptiveTDEEEngine {
         recentCheckins: [DailyCheckin],
         goal: UserGoal,
         flaggedDates: Set<String> = [],
+        offPlanIntakeDates: Set<String> = [],
         windowDays: Int = 21,
         asOf: Date = Date()
     ) -> TDEERecommendation? {
@@ -68,7 +77,7 @@ enum AdaptiveTDEEEngine {
         // pose as real weight change.
         // Days marked sick or not tracked: their intake can't be trusted, and a sick day's
         // weight is mostly fluid, so neither feeds the estimate.
-        let flaggedInWindow = flaggedDates.filter { text in
+        let flaggedInWindow = flaggedDates.union(offPlanIntakeDates).filter { text in
             guard let date = DateFormatting.date(fromISODate: text) else { return false }
             return date >= windowStart && date < windowEnd
         }
@@ -82,8 +91,11 @@ enum AdaptiveTDEEEngine {
         let nutritionInWindow = FlaggedDays.removing(nutritionLogs.filter { log in
             guard let date = DateFormatting.date(fromISODate: log.date) else { return false }
             return date >= windowStart && date < windowEnd
-        }, dateOf: { $0.date }, flagged: flaggedDates)
+        }, dateOf: { $0.date }, flagged: flaggedDates.union(offPlanIntakeDates))
 
+        // Off-plan days are often under-logged, so their calories (and the day after) stay out of the
+        // average; with too much of the window gone there's nothing sound to recommend.
+        guard !Self.tooMuchExcluded(days: flaggedInWindow.count, windowDays: windowDays) else { return nil }
         guard trendPoints.count >= minWeighIns,
               hasAdequateNutritionCoverage(nutritionInWindow, windowStart: windowStart, windowDays: windowDays, calendar: calendar)
         else { return nil }

@@ -463,6 +463,7 @@ struct MyGoalsView: View {
                 recentCheckins: windowCheckins,
                 goal: currentGoal,
                 flaggedDates: flaggedDates,
+                offPlanIntakeDates: OffPlanDays.untrustedIntakeDays(from: windowCheckins),
                 windowDays: tdeeWindowDays
             ), recommendation.isActionable else {
                 nutritionInsight = nil
@@ -525,7 +526,7 @@ private struct NutritionInsightCard: View {
             parts.append("\(insight.excludedBumpDays) off-plan-affected \(insight.excludedBumpDays == 1 ? "day" : "days")")
         }
         if insight.excludedFlaggedDays > 0 {
-            parts.append("\(insight.excludedFlaggedDays) sick or untracked \(insight.excludedFlaggedDays == 1 ? "day" : "days")")
+            parts.append("\(insight.excludedFlaggedDays) sick, untracked or off-plan \(insight.excludedFlaggedDays == 1 ? "day" : "days")")
         }
         guard !parts.isEmpty else { return "." }
         return " (excludes \(parts.joined(separator: " and ")))."

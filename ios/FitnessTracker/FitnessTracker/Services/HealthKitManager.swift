@@ -49,6 +49,8 @@ struct DetectedWatchWorkout: Identifiable {
     let totalCalories: Double?
     /// Steps taken during the workout, as the Watch counted them.
     let stepCount: Int?
+    /// How it felt, 1-10, from Apple's "Rate Your Effort" prompt - runs only, nil if not rated.
+    var perceivedEffort: Int? = nil
 }
 
 final class HealthKitManager {
@@ -70,6 +72,7 @@ final class HealthKitManager {
     private var runningPowerType: HKQuantityType { HKQuantityType(.runningPower) }
     private var basalEnergyType: HKQuantityType { HKQuantityType(.basalEnergyBurned) }
     private var bodyMassType: HKQuantityType { HKQuantityType(.bodyMass) }
+    private var effortType: HKQuantityType { HKQuantityType(.workoutEffortScore) }
 
     func requestAuthorization() async throws {
         guard HKHealthStore.isHealthDataAvailable() else { throw HealthKitError.notAvailable }
@@ -78,7 +81,7 @@ final class HealthKitManager {
             read: [
                 stepType, sleepType, bodyMassType,
                 heartRateType, activeEnergyType, distanceType, runningPowerType, basalEnergyType,
-                HKObjectType.workoutType(), HKSeriesType.workoutRoute()
+                effortType, HKObjectType.workoutType(), HKSeriesType.workoutRoute()
             ]
         )
     }
@@ -98,14 +101,15 @@ final class HealthKitManager {
         )
         let workouts = try await descriptor.result(for: store)
 
-        return workouts.compactMap { workout -> DetectedWatchWorkout? in
+        var detected: [DetectedWatchWorkout] = []
+        for workout in workouts {
             let kind: WatchWorkoutKind
             switch workout.workoutActivityType {
             case .walking: kind = .walk
             case .stairClimbing: kind = .stairmaster
             case .functionalStrengthTraining: kind = .functionalStrength
             case .running: kind = .running
-            default: return nil
+            default: continue
             }
             let avgHeartRate = workout.statistics(for: heartRateType)?
                 .averageQuantity()?
@@ -139,7 +143,8 @@ final class HealthKitManager {
             }
             let stepCount = workout.statistics(for: stepType)?.sumQuantity()
                 .map { Int($0.doubleValue(for: .count()).rounded()) }
-            return DetectedWatchWorkout(
+            let effort = kind == .running ? await effortScore(for: workout) : nil
+            detected.append(DetectedWatchWorkout(
                 id: workout.uuid.uuidString,
                 kind: kind,
                 startedAt: workout.startDate,
@@ -152,9 +157,24 @@ final class HealthKitManager {
                 avgPowerW: avgPowerW,
                 avgCadenceSPM: avgCadenceSPM,
                 totalCalories: totalCalories,
-                stepCount: stepCount
-            )
+                stepCount: stepCount,
+                perceivedEffort: effort
+            ))
         }
+        return detected
+    }
+
+    /// The 1-10 effort rating tied to a workout, if one was given. Uses the dedicated related-effort
+    /// predicate: the general "objects from this workout" one doesn't return this sample type.
+    private func effortScore(for workout: HKWorkout) async -> Int? {
+        let samples = try? await HKSampleQueryDescriptor(
+            predicates: [.quantitySample(type: effortType, predicate: HKQuery.predicateForWorkoutEffortSamplesRelated(workout: workout, activity: nil))],
+            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)],
+            limit: 1
+        ).result(for: store)
+        guard let value = samples?.first?.quantity.doubleValue(for: .appleEffortScore()) else { return nil }
+        let score = Int(value.rounded())
+        return (1...10).contains(score) ? score : nil
     }
 
     /// The GPS route of one workout, thinned for storage - empty for a

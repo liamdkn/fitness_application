@@ -26,6 +26,7 @@ struct CardioSessionRepository {
         let avg_power_w: Int?
         let avg_cadence_spm: Int?
         let total_calories: Double?
+        let perceived_effort: Int?
         let has_route: Bool
         let source: String
         let healthkit_uuid: String
@@ -45,6 +46,7 @@ struct CardioSessionRepository {
         let avg_power_w: Int?
         let avg_cadence_spm: Int?
         let total_calories: Double?
+        let perceived_effort: Int?
         let has_route: Bool?
     }
 
@@ -143,6 +145,7 @@ struct CardioSessionRepository {
         avgPowerW: Int? = nil,
         avgCadenceSPM: Int? = nil,
         totalCalories: Double? = nil,
+        perceivedEffort: Int? = nil,
         route: [RoutePoint] = [],
         healthkitUUID: String
     ) async throws -> CardioTrackingSession {
@@ -161,6 +164,7 @@ struct CardioSessionRepository {
                 avg_power_w: avgPowerW,
                 avg_cadence_spm: avgCadenceSPM,
                 total_calories: totalCalories,
+                perceived_effort: perceivedEffort,
                 has_route: !route.isEmpty,
                 source: "healthkit",
                 healthkit_uuid: healthkitUUID
@@ -205,6 +209,7 @@ struct CardioSessionRepository {
         avgPowerW: Int?,
         avgCadenceSPM: Int?,
         totalCalories: Double?,
+        perceivedEffort: Int? = nil,
         route: [RoutePoint]
     ) async throws {
         let userId = try await client.auth.session.user.id
@@ -216,6 +221,7 @@ struct CardioSessionRepository {
                 avg_power_w: avgPowerW,
                 avg_cadence_spm: avgCadenceSPM,
                 total_calories: totalCalories,
+                perceived_effort: perceivedEffort,
                 has_route: route.isEmpty ? nil : true
             ))
             .eq("id", value: sessionId)

@@ -22,6 +22,8 @@ struct CardioTrackingSession: Codable, Identifiable, Hashable {
     /// Active + resting energy ("Total Calories"); `activeCalories` stays
     /// the active-only figure.
     let totalCalories: Double?
+    /// How the run felt, 1-10, as rated on the Watch (Apple's effort score); nil if never rated.
+    let perceivedEffort: Int?
     /// Whether a GPS route is stored for this session (`run_routes`) - the
     /// route itself is fetched only when a run's detail screen opens.
     let hasRoute: Bool
@@ -48,6 +50,7 @@ struct CardioTrackingSession: Codable, Identifiable, Hashable {
         case avgPowerW = "avg_power_w"
         case avgCadenceSPM = "avg_cadence_spm"
         case totalCalories = "total_calories"
+        case perceivedEffort = "perceived_effort"
         case hasRoute = "has_route"
         case source
         case healthkitUUID = "healthkit_uuid"

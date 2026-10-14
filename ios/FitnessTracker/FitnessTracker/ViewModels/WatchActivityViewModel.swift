@@ -151,12 +151,14 @@ final class WatchActivityViewModel: ObservableObject {
         do {
             let runWindowStart = Calendar.current.date(byAdding: .day, value: -runDaysBack, to: Date()) ?? Date()
             let history = try await cardioSessionRepository.fetchHistory(from: runWindowStart, to: Date())
+            let isRun: (CardioTrackingSession) -> Bool = { $0.cardioType == .outdoorRun || $0.cardioType == .treadmill }
             let needing = history.filter {
                 $0.healthkitUUID != nil && !$0.hasRoute && $0.elevationGainM == nil
-                    && $0.avgPowerW == nil && $0.avgCadenceSPM == nil
-                    && ($0.cardioType == .outdoorRun || $0.cardioType == .treadmill)
+                    && $0.avgPowerW == nil && $0.avgCadenceSPM == nil && isRun($0)
             }
-            guard !needing.isEmpty else { return }
+            // A rating is often given after the run was imported, so look for it separately.
+            let needingEffort = history.filter { $0.healthkitUUID != nil && $0.perceivedEffort == nil && isRun($0) }
+            guard !needing.isEmpty || !needingEffort.isEmpty else { return }
             try await healthKit.requestAuthorization()
             let detected = try await healthKit.fetchRecentWorkouts(daysBack: runDaysBack).filter { $0.kind == .running }
             for session in needing {
@@ -169,7 +171,15 @@ final class WatchActivityViewModel: ObservableObject {
                     avgPowerW: workout.avgPowerW,
                     avgCadenceSPM: workout.avgCadenceSPM,
                     totalCalories: workout.totalCalories,
+                    perceivedEffort: session.perceivedEffort == nil ? workout.perceivedEffort : nil,
                     route: route
+                )
+            }
+            for session in needingEffort where !needing.contains(where: { $0.id == session.id }) {
+                guard let effort = detected.first(where: { $0.id == session.healthkitUUID })?.perceivedEffort else { continue }
+                try await cardioSessionRepository.enrichRun(
+                    sessionId: session.id, distanceMeters: nil, elevationGainM: nil, avgPowerW: nil,
+                    avgCadenceSPM: nil, totalCalories: nil, perceivedEffort: effort, route: []
                 )
             }
         } catch {
@@ -193,6 +203,7 @@ final class WatchActivityViewModel: ObservableObject {
                 avgPowerW: workout.avgPowerW,
                 avgCadenceSPM: workout.avgCadenceSPM,
                 totalCalories: workout.totalCalories,
+                perceivedEffort: workout.perceivedEffort,
                 route: route,
                 healthkitUUID: workout.id
             )

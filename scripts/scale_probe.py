@@ -27,6 +27,8 @@ more) next to the scale and follow the on-screen prompts:
     python scale_probe.py --watch   # print only what changes (weight, unit, flags) and any other
                                     # message, for 60 s: press TARE, lift things, press the buttons
     python scale_probe.py --scan    # list every Bluetooth device nearby (a new scale shows up here)
+    python scale_probe.py --adv "NAME"    # watch what a scale BROADCASTS (no connection) while you weigh
+                                          # things - many scales put the weight in their advertising
     python scale_probe.py --dump "NAME"   # connect to any device by name, list what it offers, and print
                                           # everything it sends for 60 s while you weigh things
     python scale_probe.py --foods   # upload three foods into the scale's own food list (Oats, Whole Milk,
@@ -385,6 +387,38 @@ async def scan_all():
             print(f"          manufacturer data: {manufacturer}")
 
 
+async def watch_adverts(name: str):
+    """Print the device's broadcast bytes, only when they change - for scales that advertise the weight."""
+    started = time.time()
+    last = {"key": None}
+    prompts = [
+        (8, ">>> PUT SOMETHING ON THE SCALE and leave it <<<"),
+        (20, ">>> TAKE IT OFF <<<"),
+        (28, ">>> PUT IT BACK, then press TARE <<<"),
+        (40, ">>> PUT A DIFFERENT WEIGHT ON <<<"),
+        (52, "Finishing ..."),
+    ]
+
+    def on_advert(device, adv):
+        if (device.name or adv.local_name) != name:
+            return
+        data = {k: bytes(v).hex(" ") for k, v in adv.manufacturer_data.items()}
+        services = {k: bytes(v).hex(" ") for k, v in adv.service_data.items()}
+        key = (tuple(sorted(data.items())), tuple(sorted(services.items())))
+        if key == last["key"]:
+            return
+        last["key"] = key
+        print(f"[{time.time() - started:5.1f}s] rssi {adv.rssi}  manufacturer {data}  service data {services}", flush=True)
+
+    print(f"Watching {name}'s broadcasts for 60 s. Only changes are printed.\n", flush=True)
+    async with BleakScanner(on_advert):
+        for at, text in prompts:
+            await asyncio.sleep(max(0, started + at - time.time()))
+            print(f"\n[{time.time() - started:5.1f}s] {text}\n", flush=True)
+        await asyncio.sleep(8)
+    print("\nDone.")
+
+
 async def dump_device(name: str):
     print(f"Looking for {name} ...", flush=True)
     device = await BleakScanner.find_device_by_name(name, timeout=20)
@@ -430,6 +464,9 @@ async def dump_device(name: str):
 if __name__ == "__main__":
     if "--scan" in sys.argv:
         asyncio.run(scan_all())
+        sys.exit()
+    if "--adv" in sys.argv:
+        asyncio.run(watch_adverts(sys.argv[sys.argv.index("--adv") + 1]))
         sys.exit()
     if "--dump" in sys.argv:
         asyncio.run(dump_device(sys.argv[sys.argv.index("--dump") + 1]))

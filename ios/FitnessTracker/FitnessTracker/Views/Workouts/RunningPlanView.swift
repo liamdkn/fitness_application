@@ -39,6 +39,9 @@ final class RunningPlanViewModel: ObservableObject {
     @Published var isSendingToWatch = false
     @Published var watchSyncMessage: String?
     @Published var watchSyncError: String?
+    /// The weekly review's suggestion for the coming runs, if there is one to make.
+    @Published var suggestion: RunFeedback.Suggestion?
+    @Published var isApplyingSuggestion = false
 
     private let repository = RunningPlanRepository()
     private let watchWorkoutSync = RunWorkoutSyncService()
@@ -81,6 +84,105 @@ final class RunningPlanViewModel: ObservableObject {
             let from = calendar.date(byAdding: .day, value: -90, to: plan.start) ?? plan.start
             sessions = try await repository.fetchRuns(from: from)
             errorMessage = nil
+            refreshSuggestion()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: Weekly review
+
+    private func dismissKey(planId: UUID, week: Int) -> String { "run-suggestion-handled-\(planId.uuidString)-\(week)" }
+
+    /// Reviews the latest finished week and works out what it suggests for the weeks after it.
+    func refreshSuggestion() {
+        suggestion = nil
+        guard let plan else { return }
+        let today = calendar.startOfDay(for: Date())
+        let thisMonday = DateFormatting.mondayOfWeek(containing: today)
+        guard let reviewed = weeks.last(where: { $0.monday < thisMonday && $0.runs.contains { $0.runType != .rest } }),
+              let next = weeks.first(where: { $0.monday > reviewed.monday }),
+              !UserDefaults.standard.bool(forKey: dismissKey(planId: plan.id, week: next.number)) else { return }
+        let results = reviewed.runs.filter { $0.runType != .rest }.map(feedbackResult)
+        guard let verdict = RunFeedback.verdict(for: results) else { return }
+        // Only runs still to do can be changed.
+        let upcoming = next.runs.filter { $0.runType != .rest && calendar.startOfDay(for: $0.day) >= today && actual(for: $0) == nil }
+        suggestion = RunFeedback.suggestion(for: verdict, thisWeek: reviewed.runs, upcoming: upcoming, weekNumber: next.number)
+    }
+
+    private func feedbackResult(for run: PlannedRun) -> RunFeedback.Result {
+        let done = actual(for: run)
+        let km = done.map { $0.distanceMeters / 1000 }.flatMap { $0 > 0 ? $0 : nil }
+        let derivedPace: Double? = {
+            guard let target = run.targetDistanceKm, target > 0, let minutes = run.targetDurationMin, minutes > 0 else { return nil }
+            return Double(minutes * 60) / target
+        }()
+        let actualPace: Double? = km.flatMap { distance in done.map { $0.durationSeconds / distance } }
+        let efforts = sessions.filter { calendar.isDate($0.startedAt, inSameDayAs: run.day) }.compactMap(\.perceivedEffort)
+        return RunFeedback.Result(
+            runType: run.runType, targetKm: run.targetDistanceKm, actualKm: km, effort: efforts.max(),
+            avgHeartRate: done?.avgHeartRate, heartRateBaseline: heartRateBaseline(for: run),
+            targetPaceSec: run.mainPaceSec.map(Double.init) ?? derivedPace, actualPaceSec: actualPace
+        )
+    }
+
+    /// The usual average heart rate for this type of run: its last few runs of the same type in the
+    /// two months before.
+    private func heartRateBaseline(for run: PlannedRun) -> Double? {
+        guard let from = calendar.date(byAdding: .day, value: -56, to: run.day) else { return nil }
+        let earlier = runs
+            .filter { $0.runType == run.runType && $0.day < run.day && $0.day >= from }
+            .sorted { $0.day > $1.day }
+            .compactMap { actual(for: $0)?.avgHeartRate }
+            .prefix(6)
+        guard !earlier.isEmpty else { return nil }
+        return Double(earlier.reduce(0, +)) / Double(earlier.count)
+    }
+
+    /// Every finished planned run's average pace, by run type, oldest first.
+    var paceTrend: [(type: RunType, points: [RunPaceTrendView.Point])] {
+        [RunType.easy, .tempo, .long, .interval, .racePace].map { type in
+            let points: [RunPaceTrendView.Point] = runs
+                .filter { $0.runType == type }
+                .sorted { $0.day < $1.day }
+                .compactMap { run in
+                    guard let done = actual(for: run), done.distanceMeters > 0, done.durationSeconds > 0 else { return nil }
+                    let km = done.distanceMeters / 1000
+                    return RunPaceTrendView.Point(date: run.day, paceSec: done.durationSeconds / km, km: km)
+                }
+            return (type, points)
+        }
+    }
+
+    func dismissSuggestion() {
+        guard let plan, let suggestion else { return }
+        UserDefaults.standard.set(true, forKey: dismissKey(planId: plan.id, week: suggestion.weekNumber))
+        self.suggestion = nil
+    }
+
+    /// Makes the suggested changes to the plan - only on the owner's tap.
+    func applySuggestion() async {
+        guard let suggestion else { return }
+        isApplyingSuggestion = true
+        defer { isApplyingSuggestion = false }
+        do {
+            for change in suggestion.changes {
+                guard let run = runs.first(where: { $0.id == change.runId }) else { continue }
+                // A time target scales with the distance.
+                let duration = run.targetDurationMin.map { Int((Double($0) * change.toKm / change.fromKm).rounded()) }
+                _ = try await repository.updateRun(
+                    id: run.id, date: run.day, runType: run.runType,
+                    targetDistanceKm: change.toKm, targetDurationMin: duration, notes: run.notes,
+                    segments: RunningPlanRepository.Segments(
+                        warmupMin: run.warmupMin, warmupPaceSec: run.warmupPaceSec,
+                        cooldownMin: run.cooldownMin, cooldownPaceSec: run.cooldownPaceSec,
+                        warmupKm: run.warmupKm, cooldownKm: run.cooldownKm,
+                        mainPaceSec: run.mainPaceSec, blocks: run.blocks
+                    )
+                )
+            }
+            dismissSuggestion()
+            await load()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -156,7 +258,10 @@ final class RunningPlanViewModel: ObservableObject {
     func reloadSessions() async {
         guard let plan else { return }
         let from = calendar.date(byAdding: .day, value: -90, to: plan.start) ?? plan.start
-        if let fresh = try? await repository.fetchRuns(from: from) { sessions = fresh }
+        if let fresh = try? await repository.fetchRuns(from: from) {
+            sessions = fresh
+            refreshSuggestion()
+        }
     }
 
     /// The next run still to do: the first run from today on that the Watch hasn't recorded yet.
@@ -233,9 +338,17 @@ struct RunningPlanView: View {
                 .listRowBackground(AppRowBackground())
             }
 
+            if let suggestion = viewModel.suggestion {
+                Section {
+                    suggestionCard(suggestion)
+                }
+                .listRowBackground(AppRowBackground())
+            }
+
             if let plan = viewModel.plan {
                 Section {
                     header(plan)
+                    NavigationLink("Pace trends") { RunPaceTrendView(series: viewModel.paceTrend) }
                 }
                 .listRowBackground(AppRowBackground())
                 ForEach(viewModel.weeks) { week in
@@ -313,6 +426,29 @@ struct RunningPlanView: View {
         .sheet(isPresented: $creatingPlan) {
             NewRunningPlanSheet {
                 Task { await viewModel.load() }
+            }
+        }
+    }
+
+    /// The weekly review: what last week says about the coming runs. It only proposes -
+    /// Apply makes the change, Dismiss leaves the plan as it is.
+    private func suggestionCard(_ suggestion: RunFeedback.Suggestion) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(suggestion.title, systemImage: suggestion.call == .backOff ? "arrow.down.circle" : (suggestion.call == .hold ? "equal.circle" : "arrow.up.circle"))
+                .font(.headline)
+            Text(suggestion.detail)
+                .font(.subheadline)
+            Text(suggestion.reasons.joined(separator: " \u{00b7} "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                if !suggestion.changes.isEmpty {
+                    Button("Apply") { Task { await viewModel.applySuggestion() } }
+                        .buttonStyle(.appPrimaryCompact)
+                        .disabled(viewModel.isApplyingSuggestion)
+                }
+                Button("Dismiss") { viewModel.dismissSuggestion() }
+                    .buttonStyle(.appSecondaryCompact)
             }
         }
     }

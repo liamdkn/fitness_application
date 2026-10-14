@@ -450,3 +450,91 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite @MainActor struct RunFeedbackTests {
+    private func result(_ type: RunType = .easy, target: Double? = 5, actual: Double? = 5, effort: Int? = nil,
+                        heartRate: Int? = nil, baseline: Double? = nil, targetPace: Double? = nil, actualPace: Double? = nil) -> RunFeedback.Result {
+        RunFeedback.Result(runType: type, targetKm: target, actualKm: actual, effort: effort, avgHeartRate: heartRate,
+                           heartRateBaseline: baseline, targetPaceSec: targetPace, actualPaceSec: actualPace)
+    }
+
+    @Test func aCleanWeekProgresses() {
+        let verdict = RunFeedback.verdict(for: [result(.easy, target: 5, actual: 5.1, effort: 4), result(.long, target: 12, actual: 12.2, effort: 6)])
+        #expect(verdict?.call == .progress)
+    }
+
+    @Test func aWeekWithNothingToJudgeHasNoVerdict() {
+        #expect(RunFeedback.verdict(for: []) == nil)
+        #expect(RunFeedback.verdict(for: [result(target: nil, actual: 5)]) == nil)
+    }
+
+    @Test func oneShortRunHoldsAndTwoBackOff() {
+        let one = RunFeedback.verdict(for: [result(target: 5, actual: 5), result(target: 10, actual: 8)])
+        #expect(one?.call == .hold)
+        let two = RunFeedback.verdict(for: [result(target: 5, actual: nil), result(target: 10, actual: 8)])
+        #expect(two?.call == .backOff)
+    }
+
+    @Test func aHardEasyRunBlocksProgressButIsNotAlarming() {
+        let verdict = RunFeedback.verdict(for: [result(.easy, effort: 8), result(.long, target: 12, actual: 12)])
+        #expect(verdict?.call == .hold)
+    }
+
+    @Test func aTenOutOfTenBacksOff() {
+        #expect(RunFeedback.verdict(for: [result(.long, target: 12, actual: 12, effort: 10)])?.call == .backOff)
+    }
+
+    @Test func aMuchSlowerLongRunBacksOff() {
+        let verdict = RunFeedback.verdict(for: [result(.long, target: 12, actual: 12, targetPace: 360, actualPace: 420)])
+        #expect(verdict?.call == .backOff)
+    }
+
+    @Test func heartRateWellAboveTheBaselineHolds() {
+        let verdict = RunFeedback.verdict(for: [result(.easy, effort: 4, heartRate: 160, baseline: 140)])
+        #expect(verdict?.call == .hold)
+    }
+
+    private func planned(_ type: RunType, km: Double, date: String, warmup: Double? = nil, cooldown: Double? = nil) throws -> PlannedRun {
+        let json = """
+        {"id":"\(UUID().uuidString)","running_plan_id":"00000000-0000-0000-0000-000000000002","date":"\(date)",
+         "run_type":"\(type.rawValue)","target_distance_km":\(km),"target_duration_min":null,"notes":null,
+         "warmup_km":\(warmup.map { "\($0)" } ?? "null"),"cooldown_km":\(cooldown.map { "\($0)" } ?? "null")}
+        """
+        return try JSONDecoder().decode(PlannedRun.self, from: Data(json.utf8))
+    }
+
+    @Test func holdRepeatsTheLongRunInsteadOfSteppingUp() throws {
+        let last = [try planned(.long, km: 14, date: "2026-10-10")]
+        let next = [try planned(.long, km: 15, date: "2026-10-17")]
+        let suggestion = RunFeedback.suggestion(for: .init(call: .hold, reasons: ["x"]), thisWeek: last, upcoming: next, weekNumber: 6)
+        #expect(suggestion?.changes.first?.toKm == 14)
+        #expect(suggestion?.changes.first?.fromKm == 15)
+    }
+
+    @Test func holdSaysNothingWhenThePlanAlreadyRepeats() throws {
+        let last = [try planned(.long, km: 14, date: "2026-10-10")]
+        let next = [try planned(.long, km: 14, date: "2026-10-17")]
+        #expect(RunFeedback.suggestion(for: .init(call: .hold, reasons: ["x"]), thisWeek: last, upcoming: next, weekNumber: 6) == nil)
+    }
+
+    @Test func progressIsAGoAheadWithNothingToApply() throws {
+        let last = [try planned(.long, km: 14, date: "2026-10-10")]
+        let next = [try planned(.long, km: 15, date: "2026-10-17")]
+        let suggestion = RunFeedback.suggestion(for: .init(call: .progress, reasons: ["x"]), thisWeek: last, upcoming: next, weekNumber: 6)
+        #expect(suggestion != nil)
+        #expect(suggestion?.changes.isEmpty == true)
+    }
+
+    @Test func backOffTakesAbout15PercentOffEachRemainingRun() throws {
+        let next = [try planned(.easy, km: 6, date: "2026-10-14"), try planned(.long, km: 16, date: "2026-10-17")]
+        let suggestion = RunFeedback.suggestion(for: .init(call: .backOff, reasons: ["x"]), thisWeek: [], upcoming: next, weekNumber: 6)
+        #expect(suggestion?.changes.map(\.toKm) == [5, 13.5])
+    }
+
+    @Test func backOffKeepsRoomForTheWarmUpAndCoolDown() throws {
+        let next = [try planned(.easy, km: 3, date: "2026-10-14", warmup: 1, cooldown: 1)]
+        let suggestion = RunFeedback.suggestion(for: .init(call: .backOff, reasons: ["x"]), thisWeek: [], upcoming: next, weekNumber: 6)
+        // 3 km less 15% rounds to 2.5, which already leaves 0.5 km of main running.
+        #expect(suggestion?.changes.first?.toKm == 2.5)
+    }
+}
+

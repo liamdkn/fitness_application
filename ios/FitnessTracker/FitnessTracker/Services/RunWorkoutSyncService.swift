@@ -8,14 +8,6 @@ import HealthKit
 @MainActor
 struct RunWorkoutSyncService {
     private let scheduler = WorkoutScheduler.shared
-    private let warmupMinutes = 10
-    private let cooldownMinutes = 10
-
-    struct SyncResult {
-        let scheduledCount: Int
-        let requestedCount: Int
-        let limitReached: Bool
-    }
 
     enum SyncError: LocalizedError {
         case watchUnavailable
@@ -31,7 +23,9 @@ struct RunWorkoutSyncService {
         }
     }
 
-    func syncUpcomingRuns(_ runs: [PlannedRun]) async throws -> SyncResult {
+    /// Puts just `next` on the Watch's schedule and takes the plan's other scheduled runs off it,
+    /// so the Watch only ever holds the one run that's coming up. Returns whether it was scheduled.
+    func syncNextRun(_ next: PlannedRun?, planRuns: [PlannedRun]) async throws -> Bool {
         guard WorkoutScheduler.isSupported else { throw SyncError.watchUnavailable }
 
         if await scheduler.authorizationState != .authorized {
@@ -40,42 +34,17 @@ struct RunWorkoutSyncService {
             }
         }
 
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let planRunIDs = Set(runs.map(\.id))
-        let upcomingRuns = runs
-            .filter { $0.runType != .rest && calendar.startOfDay(for: $0.day) >= today }
-            .sorted { $0.day < $1.day }
-
-        guard !upcomingRuns.isEmpty else {
-            return SyncResult(scheduledCount: 0, requestedCount: 0, limitReached: false)
-        }
-
-        let existing = await scheduler.scheduledWorkouts
-        let appEntries = existing.filter { planRunIDs.contains($0.plan.id) }
         // Clear only workouts whose IDs belong to runs in this plan. Other
         // apps' workouts, and the user's manually-created workouts, are kept.
-        for item in appEntries {
+        let planRunIDs = Set(planRuns.map(\.id))
+        for item in await scheduler.scheduledWorkouts where planRunIDs.contains(item.plan.id) {
             await scheduler.remove(item.plan, at: item.date)
         }
 
-        let otherScheduledCount = existing.count - appEntries.count
-        let availableSlots = max(0, WorkoutScheduler.maxAllowedScheduledWorkoutCount - otherScheduledCount)
-        let selectedRuns = Array(upcomingRuns.prefix(availableSlots))
-
-        for run in selectedRuns {
-            let workoutPlan = makeWorkoutPlan(for: run)
-            let date = calendar.dateComponents([.year, .month, .day], from: run.day)
-            await scheduler.schedule(workoutPlan, at: date)
-        }
-
-        let scheduledIDs = Set((await scheduler.scheduledWorkouts).map { $0.plan.id })
-        let scheduledCount = selectedRuns.filter { scheduledIDs.contains($0.id) }.count
-        return SyncResult(
-            scheduledCount: scheduledCount,
-            requestedCount: upcomingRuns.count,
-            limitReached: selectedRuns.count < upcomingRuns.count
-        )
+        guard let next else { return false }
+        let date = Calendar.current.dateComponents([.year, .month, .day], from: next.day)
+        await scheduler.schedule(makeWorkoutPlan(for: next), at: date)
+        return (await scheduler.scheduledWorkouts).contains { $0.plan.id == next.id }
     }
 
     /// A pace alert of plus or minus 5% around a pace, when the Watch can use one.
@@ -151,12 +120,10 @@ struct RunWorkoutSyncService {
             ]
         }
 
-        let warmupMin = run.warmupMin ?? warmupMinutes
-        let cooldownMin = run.cooldownMin ?? cooldownMinutes
-        let warmup = easyStep(
-            name: "Warm Up", km: run.warmupKm, minutes: warmupMin, paceSec: run.warmupPaceSec)
-        let cooldown = easyStep(
-            name: "Cool Down", km: run.cooldownKm, minutes: cooldownMin, paceSec: run.cooldownPaceSec)
+        // Distance only, and only what was set: no km means no warm-up or cool-down. (A run
+        // saved before this by time keeps its minutes.)
+        let warmup = easyStep(name: "Warm Up", km: run.warmupKm, minutes: run.warmupMin ?? 0, paceSec: run.warmupPaceSec)
+        let cooldown = easyStep(name: "Cool Down", km: run.cooldownKm, minutes: run.cooldownMin ?? 0, paceSec: run.cooldownPaceSec)
 
         let workout = CustomWorkout(
             activity: .running,

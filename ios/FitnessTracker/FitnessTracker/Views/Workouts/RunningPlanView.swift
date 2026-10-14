@@ -159,22 +159,31 @@ final class RunningPlanViewModel: ObservableObject {
         if let fresh = try? await repository.fetchRuns(from: from) { sessions = fresh }
     }
 
-    func sendUpcomingRunsToWatch() async {
+    /// The next run still to do: the first run from today on that the Watch hasn't recorded yet.
+    var nextRun: PlannedRun? {
+        let today = calendar.startOfDay(for: Date())
+        return runs
+            .filter { $0.runType != .rest && calendar.startOfDay(for: $0.day) >= today && actual(for: $0) == nil }
+            .min { $0.day < $1.day }
+    }
+
+    /// Puts just the next run on the Watch, and clears this plan's other scheduled runs off it.
+    func sendNextRunToWatch() async {
         isSendingToWatch = true
         watchSyncMessage = nil
         watchSyncError = nil
         defer { isSendingToWatch = false }
 
         do {
-            let result = try await watchWorkoutSync.syncUpcomingRuns(runs)
-            if result.requestedCount == 0 {
-                watchSyncMessage = "There are no upcoming runs in this plan to send."
-            } else if result.limitReached {
-                watchSyncMessage = "Sent \(result.scheduledCount) of \(result.requestedCount) upcoming runs. Apple Watch has reached its scheduled-workout limit."
-            } else if result.scheduledCount < result.requestedCount {
-                watchSyncError = "Apple Watch couldn't confirm every scheduled run. Try syncing again."
+            let next = nextRun
+            let sent = try await watchWorkoutSync.syncNextRun(next, planRuns: runs)
+            if let next, sent {
+                let day = next.day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+                watchSyncMessage = "Sent \(next.targetLabel) for \(day) to Apple Watch. Find it in the Workout app under Scheduled."
+            } else if next == nil {
+                watchSyncMessage = "There's no run left to send in this plan."
             } else {
-                watchSyncMessage = "Sent \(result.scheduledCount) upcoming runs to Apple Watch. Find them in the Workout app under Scheduled."
+                watchSyncError = "Apple Watch couldn't confirm the run. Try sending it again."
             }
         } catch {
             watchSyncError = error.localizedDescription
@@ -329,19 +338,16 @@ struct RunningPlanView: View {
                 Text(notes).font(.caption).foregroundStyle(.secondary)
             }
             Button {
-                Task { await viewModel.sendUpcomingRunsToWatch() }
+                Task { await viewModel.sendNextRunToWatch() }
             } label: {
                 if viewModel.isSendingToWatch {
                     Label("Sending to Apple Watch...", systemImage: "applewatch")
                 } else {
-                    Label("Send upcoming runs to Apple Watch", systemImage: "applewatch")
+                    Label("Send next run to Apple Watch", systemImage: "applewatch")
                 }
             }
             .disabled(viewModel.isSendingToWatch)
             .appToolbarTint()
-            Text("Each workout has a 10-minute warm-up and cool-down. Pace is calculated when both distance and time are set.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
             if let watchSyncMessage = viewModel.watchSyncMessage {
                 Text(watchSyncMessage)
                     .font(.caption)
@@ -460,14 +466,12 @@ private struct PlannedRunEditSheet: View {
     @State private var distanceText = ""
     @State private var durationText = ""
     @State private var notes = ""
-    @State private var warmupText = "10"
     @State private var warmupPaceText = ""
-    @State private var cooldownText = "10"
     @State private var cooldownPaceText = ""
-    @State private var warmupByDistance = false
-    @State private var warmupKmText = ""
-    @State private var cooldownByDistance = false
-    @State private var cooldownKmText = ""
+    /// Warm-up and cool-down, in km, as part of the total. Empty means none; a new run
+    /// starts on what was used last time.
+    @State private var warmupKmText = UserDefaults.standard.string(forKey: "run-last-warmup-km") ?? ""
+    @State private var cooldownKmText = UserDefaults.standard.string(forKey: "run-last-cooldown-km") ?? ""
     @State private var mainPaceText = ""
     @State private var blocks: [BlockDraft] = []
     @State private var errorMessage: String?
@@ -519,13 +523,9 @@ private struct PlannedRunEditSheet: View {
             _distanceText = State(initialValue: existing.targetDistanceKm.map { RunningPlanDefaults.plain($0) } ?? "")
             _durationText = State(initialValue: existing.targetDurationMin.map(String.init) ?? "")
             _notes = State(initialValue: existing.notes ?? "")
-            _warmupText = State(initialValue: String(existing.warmupMin ?? 10))
             _warmupPaceText = State(initialValue: PaceText.field(existing.warmupPaceSec))
-            _cooldownText = State(initialValue: String(existing.cooldownMin ?? 10))
             _cooldownPaceText = State(initialValue: PaceText.field(existing.cooldownPaceSec))
-            _warmupByDistance = State(initialValue: existing.warmupKm != nil)
             _warmupKmText = State(initialValue: existing.warmupKm.map { RunningPlanDefaults.plain($0) } ?? "")
-            _cooldownByDistance = State(initialValue: existing.cooldownKm != nil)
             _cooldownKmText = State(initialValue: existing.cooldownKm.map { RunningPlanDefaults.plain($0) } ?? "")
             _mainPaceText = State(initialValue: PaceText.field(existing.mainPaceSec))
             _blocks = State(initialValue: (existing.blocks ?? []).map { BlockDraft($0) })
@@ -545,7 +545,7 @@ private struct PlannedRunEditSheet: View {
                 }
                 .listRowBackground(AppRowBackground())
                 if runType != .rest {
-                    Section("Target (either or both)") {
+                    Section("Target") {
                         HStack {
                             Text("Total distance")
                             Spacer()
@@ -564,26 +564,18 @@ private struct PlannedRunEditSheet: View {
                                     .foregroundStyle(main <= 0 ? AppColor.warning : .secondary)
                             }
                         }
-                        HStack {
-                            Text("Time")
-                            Spacer()
-                            TextField("-", text: $durationText)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 70)
-                            Text("min").foregroundStyle(.secondary)
+                        paceField("Pace", text: $mainPaceText, startAt: 330)
+                        if let minutes = estimatedMinutes {
+                            LabeledContent("Estimated time", value: Self.durationLabel(minutes))
                         }
-                        paceField("Pace", text: $mainPaceText)
                     }
                     .listRowBackground(AppRowBackground())
 
                     Section {
-                        lengthField(byDistance: $warmupByDistance, minutes: $warmupText, km: $warmupKmText)
-                        paceField("Pace", text: $warmupPaceText)
+                        kmField("Distance", text: $warmupKmText)
+                        paceField("Pace", text: $warmupPaceText, startAt: 390)
                     } header: {
                         Text("Warm-up")
-                    } footer: {
-                        Text("By time or distance. 0 means no warm-up. Pace is optional, as minutes:seconds per km, e.g. 6:30.")
                     }
                     .listRowBackground(AppRowBackground())
 
@@ -605,8 +597,8 @@ private struct PlannedRunEditSheet: View {
                     .listRowBackground(AppRowBackground())
 
                     Section {
-                        lengthField(byDistance: $cooldownByDistance, minutes: $cooldownText, km: $cooldownKmText)
-                        paceField("Pace", text: $cooldownPaceText)
+                        kmField("Distance", text: $cooldownKmText)
+                        paceField("Pace", text: $cooldownPaceText, startAt: 390)
                     } header: {
                         Text("Cool-down")
                     }
@@ -636,47 +628,82 @@ private struct PlannedRunEditSheet: View {
         }
     }
 
-    private func paceField(_ label: String, text: Binding<String>) -> some View {
+    /// A pace picked from menus (minutes, then seconds in fives) rather than typed, so a slip
+    /// like "5:3" can't happen. `startAt` is what it opens on when first set.
+    private func paceField(_ label: String, text: Binding<String>, startAt: Int = 360) -> some View {
+        let seconds = PaceText.parse(text.wrappedValue)
+        return HStack {
+            Text(label)
+            Spacer()
+            if let total = seconds {
+                Picker("Minutes", selection: Binding(
+                    get: { total / 60 },
+                    set: { text.wrappedValue = PaceText.field($0 * 60 + total % 60) }
+                )) {
+                    ForEach(Array(Set(2...15).union([total / 60])).sorted(), id: \.self) { Text("\($0)").tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                Text(":")
+                Picker("Seconds", selection: Binding(
+                    get: { total % 60 / 5 * 5 },
+                    set: { text.wrappedValue = PaceText.field(total / 60 * 60 + $0) }
+                )) {
+                    ForEach(Array(stride(from: 0, to: 60, by: 5)), id: \.self) { Text(String(format: "%02d", $0)).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                Text("/km").foregroundStyle(.secondary)
+                Button {
+                    text.wrappedValue = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Clear \(label)")
+            } else {
+                Button("Set pace") { text.wrappedValue = PaceText.field(startAt) }
+            }
+        }
+    }
+
+    /// How long the whole run should take: the main part at its pace plus the warm-up and
+    /// cool-down at theirs (or the main pace if they have none). Nil until there's a total
+    /// distance and a main pace.
+    private var estimatedMinutes: Double? {
+        guard let total = Double(distanceText.replacingOccurrences(of: ",", with: ".")), total > 0,
+              let mainPace = PaceText.parse(mainPaceText) else { return nil }
+        let warmup = Self.parsedKm(warmupKmText) ?? 0
+        let cooldown = Self.parsedKm(cooldownKmText) ?? 0
+        let main = max(total - warmup - cooldown, 0)
+        let warmupPace = PaceText.parse(warmupPaceText) ?? mainPace
+        let cooldownPace = PaceText.parse(cooldownPaceText) ?? mainPace
+        return (main * Double(mainPace) + warmup * Double(warmupPace) + cooldown * Double(cooldownPace)) / 60
+    }
+
+    private static func durationLabel(_ minutes: Double) -> String {
+        let whole = Int(minutes.rounded())
+        return whole >= 60 ? "\(whole / 60) h \(String(format: "%02d", whole % 60)) min" : "\(whole) min"
+    }
+
+    /// A distance in km (a warm-up or cool-down); empty means none.
+    private func kmField(_ label: String, text: Binding<String>) -> some View {
         HStack {
             Text(label)
             Spacer()
-            TextField("m:ss", text: text)
-                .keyboardType(.numbersAndPunctuation)
+            TextField("none", text: text)
+                .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 70)
-            Text("/km").foregroundStyle(.secondary)
+            Text("km").foregroundStyle(.secondary)
         }
     }
 
-    /// A warm-up or cool-down length: minutes or kilometres, whichever is picked.
-    private func lengthField(byDistance: Binding<Bool>, minutes: Binding<String>, km: Binding<String>) -> some View {
-        VStack(spacing: 8) {
-            Picker("Length by", selection: byDistance) {
-                Text("Time").tag(false)
-                Text("Distance").tag(true)
-            }
-            .pickerStyle(.segmented)
-            if byDistance.wrappedValue {
-                HStack {
-                    Text("Length")
-                    Spacer()
-                    TextField("1.5", text: km)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 70)
-                    Text("km").foregroundStyle(.secondary)
-                }
-            } else {
-                minutesField("Length", text: minutes)
-            }
-        }
-    }
-
-    /// What's left of the total once a warm-up and cool-down set by distance are taken out of it;
-    /// nil when neither is set by distance.
+    /// What's left of the total once the warm-up and cool-down are taken out of it;
+    /// nil when neither is set.
     private func mainPartKm(total: Double) -> Double? {
-        let warmup = warmupByDistance ? Self.parsedKm(warmupKmText) : nil
-        let cooldown = cooldownByDistance ? Self.parsedKm(cooldownKmText) : nil
+        let warmup = Self.parsedKm(warmupKmText)
+        let cooldown = Self.parsedKm(cooldownKmText)
         guard warmup != nil || cooldown != nil else { return nil }
         return total - (warmup ?? 0) - (cooldown ?? 0)
     }
@@ -684,18 +711,6 @@ private struct PlannedRunEditSheet: View {
     /// Kilometres typed as "1.5" or "1,5", kept to a sensible range; nil if not a number.
     private static func parsedKm(_ text: String) -> Double? {
         Double(text.replacingOccurrences(of: ",", with: ".")).map { min(max($0, 0), 20) }
-    }
-
-    private func minutesField(_ label: String, text: Binding<String>) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            TextField("10", text: text)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 70)
-            Text("min").foregroundStyle(.secondary)
-        }
     }
 
     private func blockEditor(_ block: Binding<BlockDraft>) -> some View {
@@ -740,11 +755,15 @@ private struct PlannedRunEditSheet: View {
 
     private func save() async {
         let distance = runType == .rest ? nil : Double(distanceText)
-        let duration = runType == .rest ? nil : Int(durationText)
+        // Distance-based: the time is what the paces work out to (a run saved with a time and no
+        // pace keeps that time).
+        let duration = runType == .rest ? nil : (estimatedMinutes.map { Int($0.rounded()) } ?? Int(durationText))
         let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         let isRest = runType == .rest
-        if runType != .rest, (warmupByDistance && Self.parsedKm(warmupKmText) == nil) || (cooldownByDistance && Self.parsedKm(cooldownKmText) == nil) {
-            errorMessage = "Enter the warm-up and cool-down distances in km, or switch them back to time."
+        let typedWarmup = warmupKmText.trimmingCharacters(in: .whitespaces)
+        let typedCooldown = cooldownKmText.trimmingCharacters(in: .whitespaces)
+        if runType != .rest, (!typedWarmup.isEmpty && Self.parsedKm(typedWarmup) == nil) || (!typedCooldown.isEmpty && Self.parsedKm(typedCooldown) == nil) {
+            errorMessage = "Enter the warm-up and cool-down as distances in km, or leave them empty for none."
             return
         }
         if let total = distance, let main = mainPartKm(total: total), main <= 0 {
@@ -752,15 +771,20 @@ private struct PlannedRunEditSheet: View {
             return
         }
         let segments = RunningPlanRepository.Segments(
-            warmupMin: isRest || warmupByDistance ? nil : Int(warmupText).map { min(max($0, 0), 60) },
+            warmupMin: nil,
             warmupPaceSec: isRest ? nil : PaceText.parse(warmupPaceText),
-            cooldownMin: isRest || cooldownByDistance ? nil : Int(cooldownText).map { min(max($0, 0), 60) },
+            cooldownMin: nil,
             cooldownPaceSec: isRest ? nil : PaceText.parse(cooldownPaceText),
-            warmupKm: isRest || !warmupByDistance ? nil : Self.parsedKm(warmupKmText),
-            cooldownKm: isRest || !cooldownByDistance ? nil : Self.parsedKm(cooldownKmText),
+            warmupKm: isRest ? nil : Self.parsedKm(typedWarmup),
+            cooldownKm: isRest ? nil : Self.parsedKm(typedCooldown),
             mainPaceSec: isRest ? nil : PaceText.parse(mainPaceText),
             blocks: isRest ? nil : (blocks.compactMap(\.block).isEmpty ? nil : blocks.compactMap(\.block))
         )
+        if !isRest {
+            // The next new run starts on these.
+            UserDefaults.standard.set(typedWarmup, forKey: "run-last-warmup-km")
+            UserDefaults.standard.set(typedCooldown, forKey: "run-last-cooldown-km")
+        }
         do {
             if let existing {
                 try await repository.updateRun(

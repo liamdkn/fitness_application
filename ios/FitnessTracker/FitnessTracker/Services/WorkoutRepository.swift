@@ -355,6 +355,18 @@ struct WorkoutRepository {
             .execute()
     }
 
+    /// The sets of several workouts at once (in chunks, so the query stays a sensible size).
+    func fetchSets(workoutIds: [UUID]) async throws -> [WorkoutSet] {
+        try await NutritionRepository.fetchInChunks(workoutIds) { chunk in
+            try await client
+                .from("workout_sets")
+                .select()
+                .in("workout_id", values: chunk)
+                .execute()
+                .value
+        }
+    }
+
     func fetchSets(workoutId: UUID) async throws -> [WorkoutSet] {
         try await client
             .from("workout_sets")

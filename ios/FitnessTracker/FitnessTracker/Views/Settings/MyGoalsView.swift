@@ -36,6 +36,7 @@ struct MyGoalsView: View {
                     Text(errorMessage).foregroundStyle(AppColor.error)
                 } else if let currentGoal {
                     currentPhaseCard(currentGoal)
+                    NavigationLink("Phase Report") { PhaseReportView() }
                     Button("Adjust Phase") { showingAdjustPhase = true }
                 } else {
                     Text("No active phase.")

@@ -138,6 +138,26 @@ struct DashboardView: View {
                         }
                     }
 
+                    if let goal = viewModel.goal {
+                        NavigationLink {
+                            PhaseReportView()
+                        } label: {
+                            DashboardCard {
+                                HStack {
+                                    Label("Phase report", systemImage: "chart.line.uptrend.xyaxis")
+                                    Spacer()
+                                    Text(phaseSummary(goal))
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     SupplementsCard()
 
                     WeeklyLogLinkCard()
@@ -182,6 +202,14 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    /// "Cut \u{00b7} Week 8 of 12".
+    private func phaseSummary(_ goal: UserGoal) -> String {
+        let calendar = Calendar.current
+        guard let start = DateFormatting.date(fromISODate: goal.phaseStartedAt) else { return goal.phaseType.displayName }
+        let elapsed = max(calendar.dateComponents([.day], from: start, to: calendar.startOfDay(for: Date())).day ?? 0, 0)
+        return "\(goal.phaseType.displayName) \u{00b7} Week \(elapsed / 7 + 1) of \(goal.durationWeeks)"
     }
 
     private func changeDay(by offset: Int) {

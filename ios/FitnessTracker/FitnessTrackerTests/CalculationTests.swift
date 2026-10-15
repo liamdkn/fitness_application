@@ -565,3 +565,167 @@ struct IcomonKitchenScaleTests {
     }
 }
 
+@Suite @MainActor struct PhaseReportCalculatorTests {
+    private func date(_ iso: String) -> Date { DateFormatting.date(fromISODate: iso)! }
+
+    private func goal(from effective: String, phaseStart: String = "2026-09-01", calories: Double = 2000, rate: Double? = -0.5,
+                      type: GoalPhaseType = .cut, weeks: Int = 12) -> UserGoal {
+        UserGoal(id: UUID(), effectiveFrom: effective, phaseStartedAt: phaseStart, phaseType: type, startingWeightKg: 80,
+                 durationWeeks: weeks, dailyCalorieTarget: calories, proteinGTarget: 160, carbsGTarget: nil, fatGTarget: nil,
+                 targetWeightKg: nil, weeklyWeightChangeKg: rate, stepTarget: 9000, sleepTargetMinutes: nil,
+                 cardioSessionsPerWeek: 2, cardioMinutesPerSession: 30, strengthSessionsPerWeek: 4, strengthOptionalSessions: 1)
+    }
+
+    private func checkin(_ day: String, offPlan: Bool) throws -> DailyCheckin {
+        let json = """
+        {"id":"\(UUID().uuidString)","checkin_date":"\(day)","weight_kg":null,"routine_day_id":null,"workout_choice_label":null,
+         "is_rest_day":false,"energy_level":null,"soreness_level":null,"yesterday_water_ml":null,
+         "yesterday_off_plan":\(offPlan),"yesterday_off_plan_notes":null}
+        """
+        return try JSONDecoder().decode(DailyCheckin.self, from: Data(json.utf8))
+    }
+
+    private func weight(_ day: String, _ kg: Double) -> BodyWeightLog {
+        BodyWeightLog(id: UUID(), loggedAt: date(day).addingTimeInterval(8 * 3600), weightKg: kg, source: "manual")
+    }
+
+    private func isoDay(_ start: String, plus offset: Int) -> String {
+        DateFormatting.isoDate(Calendar.current.date(byAdding: .day, value: offset, to: date(start))!)
+    }
+
+    @Test func offPlanSurplusUsesTheTargetInForceEachDay() throws {
+        // Target 2,000 until 6 Sep, then 1,900. Off-plan: 3 Sep (3,000 kcal), 6 Sep (2,700), 8 Sep (nothing logged).
+        var input = PhaseReportInput(goals: [goal(from: "2026-09-01"), goal(from: "2026-09-06", calories: 1900)],
+                                     asOf: date("2026-09-10"))
+        input.checkins = [try checkin("2026-09-04", offPlan: true), try checkin("2026-09-07", offPlan: true), try checkin("2026-09-09", offPlan: true)]
+        for offset in 0..<9 {
+            let day = isoDay("2026-09-01", plus: offset)
+            if day == "2026-09-08" { continue }
+            input.dailyCalories[day] = day == "2026-09-03" ? 3000 : (day == "2026-09-06" ? 2700 : 1900)
+        }
+        let offPlan = try #require(PhaseReportCalculator(input).report()?.offPlan)
+        #expect(offPlan.offPlanDays == 3)
+        #expect(offPlan.offPlanDaysWithoutCalories == 1)
+        #expect(offPlan.loggedSurplusKcal == 1800)   // (3000 - 2000) + (2700 - 1900)
+        // A 0.5 kg/week plan is a 550 kcal/day deficit.
+        #expect(abs((offPlan.daysOfDeficitCancelled ?? 0) - 1800.0 / 550) < 0.001)
+    }
+
+    @Test func consecutiveOffPlanDaysFormRuns() throws {
+        // Off-plan on the 5th, 6th, 7th, 9th, 10th, 11th and 12th: a run of 3 and a run of 4.
+        var input = PhaseReportInput(goals: [goal(from: "2026-09-01")], asOf: date("2026-09-20"))
+        input.checkins = try [6, 7, 8, 10, 11, 12, 13].map { try checkin("2026-09-\(String(format: "%02d", $0))", offPlan: true) }
+        let offPlan = try #require(PhaseReportCalculator(input).report()?.offPlan)
+        #expect(offPlan.offPlanDays == 7)
+        #expect(offPlan.runCount == 2)
+        #expect(offPlan.longestRun == 4)
+    }
+
+    @Test func sickAndUntrackedDaysAreCountedApart() throws {
+        var input = PhaseReportInput(goals: [goal(from: "2026-09-01")], asOf: date("2026-09-05"))
+        input.dayFlags = [DayFlag(date: "2026-09-02", status: .sick), DayFlag(date: "2026-09-03", status: .notTracked)]
+        input.dailyCalories = ["2026-09-01": 2000, "2026-09-02": 900, "2026-09-03": 1200]   // 4th has nothing at all
+        let offPlan = try #require(PhaseReportCalculator(input).report()?.offPlan)
+        #expect(offPlan.sickDays == 1)
+        #expect(offPlan.notTrackedDays == 2)   // the flagged day and the empty one
+        #expect(offPlan.onPlanDays == 1)
+    }
+
+    @Test func aSickDaysWeighInStaysOutOfTheRate() throws {
+        let days = (0..<28).map { isoDay("2026-09-01", plus: $0) }
+        let clean = days.enumerated().map { weight($0.element, 80 - Double($0.offset) * 0.07) }
+        var dipped = clean
+        dipped[24] = weight(days[24], clean[24].weightKg - 5)   // a dehydrated low, near the end where it pulls hardest
+        var flagged = PhaseReportInput(goals: [goal(from: "2026-09-01")], asOf: date("2026-09-29"))
+        flagged.weights = dipped
+        flagged.dayFlags = [DayFlag(date: days[24], status: .sick)]
+        var unflagged = flagged
+        unflagged.dayFlags = []
+        var reference = flagged
+        reference.weights = clean
+        reference.dayFlags = []
+
+        let rateFlagged = try #require(PhaseReportCalculator(flagged).report()?.progress.actualRatePerWeek)
+        let rateUnflagged = try #require(PhaseReportCalculator(unflagged).report()?.progress.actualRatePerWeek)
+        let rateClean = try #require(PhaseReportCalculator(reference).report()?.progress.actualRatePerWeek)
+        #expect(abs(rateFlagged - rateClean) < 0.05)
+        #expect(abs(rateUnflagged - rateClean) > 0.05)
+        let dot = try #require(PhaseReportCalculator(flagged).report()?.progress.dots.first { DateFormatting.isoDate($0.date) == days[24] })
+        #expect(dot.isSick)
+    }
+
+    @Test func theProjectionNeedsTwoWeeksOfWeighInsAndAWeekLeft() throws {
+        var input = PhaseReportInput(goals: [goal(from: "2026-09-01")], asOf: date("2026-09-14"))
+        input.weights = (0..<13).map { weight(isoDay("2026-09-01", plus: $0), 80 - Double($0) * 0.07) }
+        #expect(PhaseReportCalculator(input).report()?.projection == nil)
+        input.weights.append(weight("2026-09-14", 79.0))
+        input.asOf = date("2026-09-15")
+        #expect(PhaseReportCalculator(input).report()?.projection != nil)
+        // Under a week left: hidden again.
+        input.asOf = date("2026-11-24")   // the phase ends 24 Nov (12 weeks from 1 Sep)... three days short of it
+        input.asOf = date("2026-11-21")
+        #expect(PhaseReportCalculator(input).report()?.projection == nil)
+    }
+
+    @Test func plannedTreatsRaiseTheOnPlanProjection() throws {
+        var input = PhaseReportInput(goals: [goal(from: "2026-09-01")], asOf: date("2026-09-20"))
+        input.weights = (0..<20).map { weight(isoDay("2026-09-01", plus: $0), 80 - Double($0) * 0.07) }
+        let without = try #require(PhaseReportCalculator(input).report()?.projection)
+        input.plannedTreats = [PlannedTreat(id: UUID(), date: "2026-10-01", mealSlotId: nil, label: "Birthday",
+                                            extraCalories: 3850, extraProteinG: 0, extraCarbsG: 0, extraFatG: 0)]
+        let with = try #require(PhaseReportCalculator(input).report()?.projection)
+        // 3,850 kcal is half a kilo; it moves the on-plan end of the range (and only that end).
+        #expect(abs((with.highKg - without.highKg) - 0.5) < 0.0001 || abs((with.lowKg - without.lowKg) - 0.5) < 0.0001)
+    }
+
+    private func liftInput(sessions: [(day: String, sets: [(Double, Int, Bool)])], sick: [String] = []) -> (PhaseReportInput, UUID) {
+        let exercise = UUID()
+        var input = PhaseReportInput(goals: [goal(from: "2026-09-01")], asOf: date("2026-10-30"))
+        input.exerciseNames = [exercise: "Bench"]
+        for session in sessions {
+            let id = UUID()
+            input.workouts.append(.init(id: id, date: date(session.day)))
+            for set in session.sets {
+                input.sets.append(.init(workoutId: id, exerciseId: exercise, reps: set.1, weightKg: set.0, isWarmup: set.2))
+            }
+        }
+        input.dayFlags = sick.map { DayFlag(date: $0, status: .sick) }
+        return (input, exercise)
+    }
+
+    @Test func liftsIgnoreWarmUpsAndNeedThreeSessions() throws {
+        let (input, _) = liftInput(sessions: [
+            ("2026-09-03", [(60, 8, false), (200, 5, true)]),   // a heavy "warm-up" must not count
+            ("2026-09-10", [(62.5, 8, false)]),
+            ("2026-09-17", [(65, 8, false)]),
+        ])
+        let lifts = try #require(PhaseReportCalculator(input).report()?.lifts)
+        let bench = try #require(lifts.topUp.first)
+        // 60 x 8 -> 60 * (1 + 8/30) = 76; the 200 kg warm-up would have made this 233.
+        #expect(abs(bench.firstE1RM - 76) < 0.001)
+        #expect(lifts.exercisesUp == 1)
+
+        let (twoSessions, _) = liftInput(sessions: [("2026-09-03", [(60, 8, false)]), ("2026-09-10", [(65, 8, false)])])
+        #expect(PhaseReportCalculator(twoSessions).report()?.lifts == nil)
+    }
+
+    @Test func aDropAfterABreakIsAnnotated() throws {
+        // Last two sessions 14 days apart.
+        let (gap, _) = liftInput(sessions: [("2026-09-03", [(70, 8, false)]), ("2026-09-10", [(70, 8, false)]),
+                                            ("2026-09-17", [(70, 8, false)]), ("2026-10-01", [(60, 8, false)])])
+        let drop = try #require(PhaseReportCalculator(gap).report()?.lifts?.topDown.first)
+        #expect(drop.afterBreak)
+
+        // Last two sessions a week apart, but sick in between.
+        let (sick, _) = liftInput(sessions: [("2026-09-03", [(70, 8, false)]), ("2026-09-10", [(70, 8, false)]),
+                                             ("2026-09-17", [(70, 8, false)]), ("2026-09-24", [(60, 8, false)])],
+                                  sick: ["2026-09-20"])
+        #expect(try #require(PhaseReportCalculator(sick).report()?.lifts?.topDown.first).afterBreak)
+
+        // Same drop, no gap and no illness: not annotated.
+        let (plain, _) = liftInput(sessions: [("2026-09-03", [(70, 8, false)]), ("2026-09-10", [(70, 8, false)]),
+                                              ("2026-09-17", [(70, 8, false)]), ("2026-09-24", [(60, 8, false)])])
+        #expect(try #require(PhaseReportCalculator(plain).report()?.lifts?.topDown.first).afterBreak == false)
+    }
+}
+

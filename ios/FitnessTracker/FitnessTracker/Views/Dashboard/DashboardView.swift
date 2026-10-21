@@ -3,10 +3,36 @@ import SwiftUI
 struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
     @StateObject private var watchActivityViewModel = WatchActivityViewModel()
-    @StateObject private var coachViewModel = CoachViewModel()
+    @StateObject private var coachViewModel = CoachViewModel(fireMoments: true)
     @State private var activeSheet: DashboardSheet?
     @State private var selectedDate = Date()
     @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+
+    /// What the coach has to say full screen: a streak moment first, then a reward that was earned.
+    private enum CoachCover: Identifiable {
+        case moment(StreakMoment)
+        case unlock(RewardProgress)
+
+        var id: String {
+            switch self {
+            case .moment(let moment): "moment-\(moment.id)"
+            case .unlock(let progress): "unlock-\(progress.id)"
+            }
+        }
+    }
+
+    private var coachCover: Binding<CoachCover?> {
+        Binding(
+            get: {
+                if let moment = coachViewModel.moments.first { return .moment(moment) }
+                if let unlock = coachViewModel.pendingUnlock { return .unlock(unlock) }
+                return nil
+            },
+            set: { _ in }
+        )
+    }
 
     private enum DashboardSheet: String, Identifiable {
         case dailyCheckin, weeklyCheckin
@@ -29,6 +55,8 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     CoachCardView(viewModel: coachViewModel)
+
+                    NearestRewardCard(viewModel: coachViewModel)
 
                     // The Daily row always stays - completing it doesn't
                     // make it un-tappable, since a mistyped number (weight,
@@ -207,6 +235,25 @@ struct DashboardView: View {
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
                 await coachViewModel.load()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // The streak, stars and today's reminder follow the day's real log.
+                if phase == .active { Task { await coachViewModel.load() } }
+            }
+            .fullScreenCover(item: coachCover) { cover in
+                switch cover {
+                case .moment(let moment):
+                    StreakMomentView(moment: moment) { coachViewModel.dismissMoment() }
+                case .unlock(let progress):
+                    RewardUnlockedView(progress: progress) {
+                        Task {
+                            await coachViewModel.claim(progress.reward)
+                            if let link = progress.reward.link, let url = RewardLink.url(from: link) { openURL(url) }
+                        }
+                    } onLater: {
+                        coachViewModel.pendingUnlock = nil
+                    }
+                }
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {

@@ -6,11 +6,13 @@ import SwiftUI
 struct CoachPatternsView: View {
     @ObservedObject var viewModel: CoachViewModel
     @State private var selected: CoachDayRecord?
+    @State private var showingRewardEditor = false
 
     var body: some View {
         List {
             if let snapshot = viewModel.snapshot {
                 tilesSection(snapshot)
+                rewardsSection
                 calendarSection(snapshot)
                 weakSpotsSection(snapshot)
                 slipChainsSection(snapshot)
@@ -31,6 +33,11 @@ struct CoachPatternsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if viewModel.snapshot == nil { await viewModel.load() } }
         .refreshable { await viewModel.load() }
+        .sheet(isPresented: $showingRewardEditor) {
+            RewardEditorView(phaseStartedAt: viewModel.phaseStartedAt, phaseEnd: viewModel.phaseEndDate) {
+                await viewModel.load()
+            }
+        }
         .sheet(item: $selected) { record in
             DayDetailSheet(record: record)
                 .presentationDetents([.medium])
@@ -72,6 +79,17 @@ struct CoachPatternsView: View {
             Text(detail).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Rewards
+
+    private var rewardsSection: some View {
+        Section {
+            ForEach(viewModel.activeRewards) { RewardProgressRow(progress: $0) }
+            Button { showingRewardEditor = true } label: { Label("Reward", systemImage: "plus") }
+        } header: {
+            Text("Rewards")
+        }
     }
 
     // MARK: Calendar

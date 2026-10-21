@@ -119,6 +119,7 @@ private struct DeleteAccountSheet: View {
         defer { isDeleting = false }
         do {
             try await ProgressPhotoRepository().deleteAllFiles()
+            try? await RewardRepository().deleteAllFiles()
             try await SupabaseService.shared.client.rpc("delete_my_account").execute()
             // The login no longer exists; clear this phone and go back to sign-in.
             try? await SupabaseService.shared.signOut()

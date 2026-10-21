@@ -28,6 +28,13 @@ struct SettingsView: View {
                 }
                 .listRowBackground(AppRowBackground())
 
+                Section("Rewards") {
+                    NavigationLink("Rewards and Trophy Shelf") {
+                        RewardsView()
+                    }
+                }
+                .listRowBackground(AppRowBackground())
+
                 Section("Health") {
                     NavigationLink("Injuries") {
                         InjuriesView()

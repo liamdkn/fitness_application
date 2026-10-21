@@ -176,6 +176,8 @@ struct CoachWeekCell: Identifiable {
     let record: CoachDayRecord?
     let isToday: Bool
     let isFuture: Bool
+    /// Inside the phase (a row's first or last days can fall outside it).
+    let inPhase: Bool
     var id: Date { date }
 }
 
@@ -409,23 +411,45 @@ struct CoachEngine {
 
     // MARK: Calendar
 
-    /// Monday-Sunday rows from the phase's first week to the current week. Today and days still
-    /// to come have no record.
-    func calendarWeeks(days: [CoachDayRecord]) -> [CoachWeek] {
+    /// When the phase ends (exclusive): its start plus its length.
+    var phaseEnd: Date? {
+        guard let start = phaseStart, let weeks = sortedGoals.first?.durationWeeks else { return nil }
+        return addDays(weeks * 7, to: calendar.startOfDay(for: start))
+    }
+
+    /// Monday-Sunday rows from the phase's first week to the current week, or on to the phase's
+    /// last week. Today and days still to come have no record.
+    func calendarWeeks(days: [CoachDayRecord], throughPhaseEnd: Bool = false) -> [CoachWeek] {
         guard let start = phaseStart else { return [] }
         let byDate = Dictionary(days.map { ($0.date, $0) }, uniquingKeysWith: { first, _ in first })
         var monday = DateFormatting.mondayOfWeek(containing: start)
-        let lastMonday = DateFormatting.mondayOfWeek(containing: today)
+        var last = today
+        if throughPhaseEnd, let end = phaseEnd { last = max(today, addDays(-1, to: end)) }
+        let lastMonday = DateFormatting.mondayOfWeek(containing: last)
+        let phaseStartDay = calendar.startOfDay(for: start)
         var weeks: [CoachWeek] = []
         while monday <= lastMonday {
             let cells = (0..<7).map { offset -> CoachWeekCell in
                 let date = addDays(offset, to: monday)
-                return CoachWeekCell(date: date, record: byDate[iso(date)], isToday: date == today, isFuture: date > today)
+                let inPhase = date >= phaseStartDay && (phaseEnd.map { date < $0 } ?? true)
+                return CoachWeekCell(date: date, record: byDate[iso(date)], isToday: date == today, isFuture: date > today, inPhase: inPhase)
             }
             weeks.append(CoachWeek(monday: monday, cells: cells))
             monday = addDays(7, to: monday)
         }
         return weeks
+    }
+
+    /// Today looks on plan so far: enough logged and not over budget. Only provisional - the day
+    /// is confirmed by the next morning's check-in.
+    func todayProvisionallyOnPlan() -> Bool {
+        let key = iso(today)
+        if input.dayFlags.contains(where: { $0.date == key && $0.status == .sick }) { return false }
+        guard let goal = goal(on: key) else { return false }
+        let calories = input.dailyCalories[key] ?? 0
+        let extra = input.plannedTreats.filter { $0.date == key }.reduce(0) { $0 + $1.extraCalories }
+        return !(calories < goal.dailyCalorieTarget * Self.fullyLoggedShare)
+            && !(calories > goal.dailyCalorieTarget + Self.overTolerance + extra)
     }
 
     /// This week's seven days.

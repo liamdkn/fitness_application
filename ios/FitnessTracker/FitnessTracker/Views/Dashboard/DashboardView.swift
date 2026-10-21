@@ -3,6 +3,7 @@ import SwiftUI
 struct DashboardView: View {
     @StateObject private var viewModel = DashboardViewModel()
     @StateObject private var watchActivityViewModel = WatchActivityViewModel()
+    @StateObject private var coachViewModel = CoachViewModel()
     @State private var activeSheet: DashboardSheet?
     @State private var selectedDate = Date()
     @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
@@ -27,6 +28,8 @@ struct DashboardView: View {
         AppNavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    CoachCardView(viewModel: coachViewModel)
+
                     // The Daily row always stays - completing it doesn't
                     // make it un-tappable, since a mistyped number (weight,
                     // most often) is only fixable by reopening the same
@@ -180,6 +183,7 @@ struct DashboardView: View {
                 await viewModel.loadWaterGlance()
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
+                await coachViewModel.load()
             }
             .refreshable {
                 await viewModel.load(date: selectedDate)
@@ -188,12 +192,14 @@ struct DashboardView: View {
                 await viewModel.loadWaterGlance()
                 await checkinAvailability.refresh()
                 await watchActivityViewModel.loadCandidates()
+                await coachViewModel.load()
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
                 case .dailyCheckin:
                     DailyCheckinSheet {
                         await viewModel.load(date: selectedDate)
+                        await coachViewModel.load()
                     }
                 case .weeklyCheckin:
                     WeeklyCheckinFlow {

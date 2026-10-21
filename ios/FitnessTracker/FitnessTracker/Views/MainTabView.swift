@@ -4,6 +4,7 @@ struct MainTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var leftAt: Date?
     @State private var router = MealTagRouter.shared
+    @State private var coachRouter = CoachRouter.shared
 
     private enum Tab: Hashable { case dashboard, train, nutrition, settings }
     @State private var selectedTab = Tab.dashboard
@@ -26,6 +27,12 @@ struct MainTabView: View {
         // A meal tag with nothing tracked opens that meal: go to Nutrition for it.
         .onChange(of: router.pendingMealSlotId) { _, id in
             if id != nil { selectedTab = .nutrition }
+        }
+        // The coach card's buttons: a workout on Train, a day's meals on Nutrition.
+        .onChange(of: coachRouter.pending) { _, destination in
+            guard let destination else { return }
+            selectedTab = destination == .train ? .train : .nutrition
+            coachRouter.pending = nil
         }
         .overlay(alignment: .top) { OfflineBanner() }
         .task {

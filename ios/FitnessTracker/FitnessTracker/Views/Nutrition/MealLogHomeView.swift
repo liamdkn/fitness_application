@@ -9,6 +9,8 @@ struct MealLogHomeView: View {
     @State private var selectedDate = Date()
     /// A meal opened by a tag scan (see `MealTagRouter`).
     @State private var router = MealTagRouter.shared
+    /// A day the coach card asked to open (see `CoachRouter`).
+    @State private var coachRouter = CoachRouter.shared
     @State private var openedSlot: MealSlot?
     @State private var goal: UserGoal?
     @State private var showingRepeatDay = false
@@ -88,6 +90,14 @@ struct MealLogHomeView: View {
         router.pendingMealSlotId = nil
         if !Calendar.current.isDateInToday(selectedDate) { selectedDate = Date() }
         openedSlot = slot
+    }
+
+    /// Opens the day the coach card asked for. On first appearance the load below picks it up;
+    /// when this tab is already showing, `selectDay` reloads the entries for it.
+    private func openCoachDate(reload: Bool) {
+        guard let date = coachRouter.nutritionDate else { return }
+        coachRouter.nutritionDate = nil
+        if reload { selectDay(date) } else { selectedDate = date }
     }
 
     /// The selected day is after today.
@@ -201,7 +211,9 @@ struct MealLogHomeView: View {
                 MealSlotDetailView(viewModel: viewModel, slot: slot, date: selectedDate, preworkoutCarbTargetG: preworkoutCarbTargetG)
             }
             .onChange(of: router.pendingMealSlotId) { openPendingMeal() }
+            .onChange(of: coachRouter.nutritionDate) { openCoachDate(reload: true) }
             .task {
+                openCoachDate(reload: false)
                 await viewModel.loadMealSlots()
                 openPendingMeal()
                 await viewModel.loadEntries(date: selectedDate)

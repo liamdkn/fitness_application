@@ -5,11 +5,19 @@ import SwiftUI
 /// heading, what off-plan days have cost, how lifts are holding up, and activity by week.
 struct PhaseReportView: View {
     @StateObject private var viewModel = PhaseReportViewModel()
+    @StateObject private var coachViewModel = CoachViewModel()
 
     var body: some View {
         List {
             if let report = viewModel.report {
                 headerSection(report)
+                Section {
+                    NavigationLink {
+                        CoachPatternsView(viewModel: coachViewModel)
+                    } label: {
+                        Label("Adherence calendar and patterns", systemImage: "calendar")
+                    }
+                }
                 progressSection(report.progress)
                 projectionSection(report)
                 if let offPlan = report.offPlan { offPlanSection(offPlan) }

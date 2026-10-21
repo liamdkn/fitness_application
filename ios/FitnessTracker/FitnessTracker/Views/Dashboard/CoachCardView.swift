@@ -5,7 +5,7 @@ struct CoachCardView: View {
     @ObservedObject var viewModel: CoachViewModel
 
     var body: some View {
-        if let message = viewModel.message, let snapshot = viewModel.snapshot {
+        if let message = viewModel.message, viewModel.snapshot != nil {
             DashboardCard {
                 VStack(alignment: .leading, spacing: 12) {
                     Label("Coach", systemImage: "figure.mind.and.body")
@@ -21,27 +21,38 @@ struct CoachCardView: View {
                             .buttonStyle(.borderedProminent)
                     }
 
-                    HStack(spacing: 6) {
-                        if let week = viewModel.thisWeek {
-                            ForEach(week.cells) { cell in
-                                square(cell)
+                    NavigationLink {
+                        CoachPatternsView(viewModel: viewModel)
+                    } label: {
+                        HStack(spacing: 6) {
+                            if let week = viewModel.thisWeek {
+                                ForEach(week.cells) { cell in
+                                    StarCell(
+                                        cell: cell,
+                                        kind: viewModel.stars?.byDate[DateFormatting.isoDate(cell.date)] ?? .none,
+                                        celebrate: viewModel.celebratingDate == DateFormatting.isoDate(cell.date)
+                                    )
+                                    .frame(width: 30, height: 30)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            VStack(alignment: .trailing, spacing: 0) {
+                                Label("\(viewModel.streak?.displayCurrent ?? 0)", systemImage: "flame.fill")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(AppColor.flame)
+                                Text(viewModel.streak.map { "best \($0.best)" } ?? "")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
                         }
-                        Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 0) {
-                            Text("\(snapshot.onPlanStreak)")
-                                .font(.title3.bold())
-                            Text(snapshot.onPlanStreak == 1 ? "day on plan" : "days on plan")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
                     }
+                    .buttonStyle(.plain)
 
                     NavigationLink {
                         CoachPatternsView(viewModel: viewModel)
                     } label: {
                         HStack {
-                            Text("Calendar and patterns")
+                            Text("Star chart and patterns")
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
                         }
@@ -50,21 +61,6 @@ struct CoachCardView: View {
                 }
             }
         }
-    }
-
-    /// Green on plan, grey off plan, outline for today and days to come.
-    private func square(_ cell: CoachWeekCell) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 5)
-        return Group {
-            if let record = cell.record {
-                shape.fill(record.status.isOn ? AppColor.success : Color.secondary.opacity(0.35))
-            } else {
-                shape.strokeBorder(Color.secondary.opacity(cell.isToday ? 0.9 : 0.4), lineWidth: cell.isToday ? 2 : 1)
-            }
-        }
-        .frame(width: 22, height: 22)
-        .accessibilityLabel(cell.record.map { "\(cell.date.formatted(.dateTime.weekday(.wide))): \($0.status.displayName)" }
-            ?? "\(cell.date.formatted(.dateTime.weekday(.wide))): not finished")
     }
 
     private func perform(_ action: CoachMessage.Action) {

@@ -27,7 +27,7 @@ struct CoachPatternsView: View {
             }
         }
         .appScreen()
-        .navigationTitle("Adherence")
+        .navigationTitle("Star chart")
         .navigationBarTitleDisplayMode(.inline)
         .task { if viewModel.snapshot == nil { await viewModel.load() } }
         .refreshable { await viewModel.load() }
@@ -37,23 +37,13 @@ struct CoachPatternsView: View {
         }
     }
 
-    // MARK: Colours
-
-    private func color(for record: CoachDayRecord) -> Color {
-        switch record.status {
-        case .on: AppColor.success
-        case .flagged: AppColor.error
-        case .over: AppColor.warning
-        case .blank: Color.secondary.opacity(0.4)
-        }
-    }
-
     // MARK: Header tiles
 
     private func tilesSection(_ snapshot: CoachSnapshot) -> some View {
         let counts = snapshot.counts
         return Section {
             VStack(alignment: .leading, spacing: 14) {
+                starSummary
                 HStack(alignment: .top, spacing: 12) {
                     tile(title: "On plan", value: "\(counts.on) of \(counts.total)", detail: "\(Int((counts.onShare * 100).rounded()))%")
                     if let last14 = viewModel.last14 {
@@ -91,13 +81,13 @@ struct CoachPatternsView: View {
             VStack(spacing: 6) {
                 HStack(spacing: 6) {
                     Text("").frame(width: 44)
-                    ForEach(["M", "T", "W", "T", "F", "S", "S"].indices, id: \.self) { index in
-                        Text(["M", "T", "W", "T", "F", "S", "S"][index])
+                    ForEach(Array(["M", "T", "W", "T", "F", "S", "S"].enumerated()), id: \.offset) { _, letter in
+                        Text(letter)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                     }
-                    Text("").frame(width: 30)
+                    Text("").frame(width: 34)
                 }
                 ForEach(viewModel.weeks) { week in
                     HStack(spacing: 6) {
@@ -106,65 +96,76 @@ struct CoachPatternsView: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 44, alignment: .leading)
                         ForEach(week.cells) { cell in
-                            cellView(cell)
+                            let key = DateFormatting.isoDate(cell.date)
+                            let star = StarCell(cell: cell, kind: viewModel.stars?.byDate[key] ?? .none, celebrate: viewModel.celebratingDate == key)
+                                .frame(maxWidth: .infinity)
+                            if let record = cell.record {
+                                Button { selected = record } label: { star }.buttonStyle(.plain)
+                            } else {
+                                star
+                            }
                         }
-                        Text("\(week.onCount)/7")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 30, alignment: .trailing)
+                        weekEnd(week)
+                            .frame(width: 34, alignment: .trailing)
                     }
                 }
                 legend
             }
             .padding(.vertical, 4)
         } header: {
-            Text("Calendar")
+            Text("Stars")
         }
     }
 
+    /// A gold medal for a perfect week, otherwise the week's count.
     @ViewBuilder
-    private func cellView(_ cell: CoachWeekCell) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 6)
-        if let record = cell.record {
-            Button { selected = record } label: {
-                shape.fill(color(for: record))
-                    .overlay {
-                        if record.isSick { Circle().fill(.white.opacity(0.9)).frame(width: 6, height: 6) }
-                    }
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(cell.date.formatted(.dateTime.weekday(.wide).day().month())): \(record.status.displayName)\(record.isSick ? ", sick" : "")")
+    private func weekEnd(_ week: CoachWeek) -> some View {
+        if viewModel.stars?.perfectWeeks.contains(DateFormatting.isoDate(week.monday)) == true {
+            Image(systemName: "medal.fill")
+                .foregroundStyle(AppColor.star)
+                .accessibilityLabel("Perfect week")
         } else {
-            shape.strokeBorder(Color.secondary.opacity(cell.isToday ? 0.9 : 0.25), lineWidth: cell.isToday ? 2 : 1)
-                .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .opacity(isBeforePhase(cell) ? 0.15 : 1)
+            Text("\(week.onCount)/7")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
     }
 
-    private func isBeforePhase(_ cell: CoachWeekCell) -> Bool {
-        guard let first = viewModel.snapshot?.days.first, let start = DateFormatting.date(fromISODate: first.date) else { return false }
-        return cell.date < start
+    /// Stars, the streak, the best, and freezes in the bank.
+    private var starSummary: some View {
+        HStack(spacing: 14) {
+            Label("\(viewModel.stars?.total ?? 0)", systemImage: "star.fill")
+                .foregroundStyle(AppColor.star)
+            Label("\(viewModel.streak?.displayCurrent ?? 0)", systemImage: "flame.fill")
+                .foregroundStyle(AppColor.flame)
+            Text("best \(viewModel.streak?.best ?? 0)")
+                .foregroundStyle(.secondary)
+            Label("\(viewModel.streak?.freezesBanked ?? 0)", systemImage: "snowflake")
+                .foregroundStyle(AppColor.freeze)
+            Spacer(minLength: 0)
+        }
+        .font(.headline)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(viewModel.stars?.total ?? 0) stars, streak \(viewModel.streak?.displayCurrent ?? 0) days, best \(viewModel.streak?.best ?? 0), \(viewModel.streak?.freezesBanked ?? 0) freezes banked")
     }
 
     private var legend: some View {
         HStack(spacing: 12) {
-            legendItem(AppColor.success, "On")
-            legendItem(AppColor.error, "Flagged")
-            legendItem(Color.secondary.opacity(0.4), "Barely logged")
-            legendItem(AppColor.warning, "Over")
+            legendItem(Image(systemName: "star.fill").foregroundStyle(AppColor.star), "On plan")
+            legendItem(Image(systemName: "star").foregroundStyle(AppColor.star), "Today so far")
+            legendItem(RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.3)).frame(width: 10, height: 10), "Off")
+            legendItem(RoundedRectangle(cornerRadius: 2).strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [2, 1])).frame(width: 10, height: 10), "Barely logged")
+            legendItem(Image(systemName: "snowflake").foregroundStyle(AppColor.freeze), "Frozen")
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
         .padding(.top, 4)
     }
 
-    private func legendItem(_ color: Color, _ label: String) -> some View {
-        HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 10, height: 10)
-            Text(label)
+    private func legendItem<Mark: View>(_ mark: Mark, _ label: String) -> some View {
+        HStack(spacing: 3) {
+            mark.font(.caption2)
+            Text(label).lineLimit(1).minimumScaleFactor(0.7)
         }
     }
 

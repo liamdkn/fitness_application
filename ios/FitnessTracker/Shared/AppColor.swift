@@ -63,6 +63,15 @@ nonisolated enum AppColor {
     /// Inline error messages.
     static let error = Color.red
 
+    // MARK: Streaks and stars
+
+    /// A star on the star chart, a perfect-week medal.
+    static let star = Color.yellow
+    /// The streak flame.
+    static let flame = Color.orange
+    /// A streak freeze.
+    static let freeze = Color.cyan
+
     // MARK: Nutrition
 
     static let protein = Color.blue

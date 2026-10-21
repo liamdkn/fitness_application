@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 
 /// Gathers what the Coach needs from the existing repositories and hands it to the pure
 /// `CoachEngine`. Every query is scoped to the signed-in user by the repositories (RLS).
@@ -7,8 +8,13 @@ import Foundation
 final class CoachViewModel: ObservableObject {
     @Published var snapshot: CoachSnapshot?
     @Published var message: CoachMessage?
+    @Published var streak: StreakState?
+    @Published var stars: StarState?
+    /// Rows from the phase's first week to its last, so the star chart shows the stars still to earn.
     @Published var weeks: [CoachWeek] = []
     @Published var thisWeek: CoachWeek?
+    /// The day whose star was just confirmed: its cell pulses once.
+    @Published var celebratingDate: String?
     @Published var phaseType: GoalPhaseType?
     /// Smoothed weight now and at the phase start.
     @Published var trendNowKg: Double?
@@ -21,6 +27,25 @@ final class CoachViewModel: ObservableObject {
         guard let days = snapshot?.days, !days.isEmpty else { return nil }
         let recent = days.suffix(14)
         return (recent.filter { $0.status.isOn }.count, recent.count)
+    }
+
+    private static let seenStarsKey = "coach.confirmedStarDates"
+
+    /// Compares the confirmed stars with the ones seen last time. A star that wasn't there before
+    /// (yesterday's, once this morning's check-in confirms it) pulses once, with a light tap.
+    private func noteNewStars(_ stars: StarState) {
+        let confirmed = Set(stars.byDate.filter { $0.value == .filled }.keys)
+        let defaults = UserDefaults.standard
+        let previous = defaults.stringArray(forKey: Self.seenStarsKey).map(Set.init)
+        defaults.set(Array(confirmed), forKey: Self.seenStarsKey)
+        // The first run only records what is there, so history doesn't all light up at once.
+        guard let previous, let newest = confirmed.subtracting(previous).max() else { return }
+        celebratingDate = newest
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if celebratingDate == newest { celebratingDate = nil }
+        }
     }
 
     func load() async {
@@ -57,10 +82,19 @@ final class CoachViewModel: ObservableObject {
             let engine = CoachEngine(input)
             let snapshot = engine.snapshot()
             self.snapshot = snapshot
-            weeks = engine.calendarWeeks(days: snapshot.days)
-            thisWeek = weeks.last
+            weeks = engine.calendarWeeks(days: snapshot.days, throughPhaseEnd: true)
+            thisWeek = engine.thisWeek(days: snapshot.days)
             message = engine.message(snapshot: snapshot)
             phaseType = current.phaseType
+
+            let streakEngine = StreakEngine(
+                days: snapshot.days, todayKey: DateFormatting.isoDate(today),
+                provisionalToday: engine.todayProvisionallyOnPlan(), phaseLengthDays: current.durationWeeks * 7
+            )
+            let computed = streakEngine.compute()
+            streak = computed.streak
+            stars = computed.stars
+            noteNewStars(computed.stars)
 
             let weights = (try? await BodyWeightRepository().fetchHistory(limit: 600)) ?? []
             let trend = TrendWeightCalculator.compute(from: weights)

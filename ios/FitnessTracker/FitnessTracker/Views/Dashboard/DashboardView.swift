@@ -176,6 +176,20 @@ struct DashboardView: View {
             .appScreen()
             .navigationTitle("Dashboard")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // The streak, where it's seen every time the app opens.
+                if let streak = coachViewModel.streak {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink {
+                            CoachPatternsView(viewModel: coachViewModel)
+                        } label: {
+                            Label("\(streak.displayCurrent)", systemImage: "flame.fill")
+                                .foregroundStyle(streak.displayCurrent > 0 ? AppColor.flame : .secondary)
+                        }
+                        .accessibilityLabel("Streak: \(streak.displayCurrent) days")
+                    }
+                }
+            }
             .task {
                 await viewModel.load(date: selectedDate)
                 await viewModel.loadWeightGlance()

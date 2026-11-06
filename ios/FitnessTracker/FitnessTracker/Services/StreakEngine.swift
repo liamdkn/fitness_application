@@ -158,9 +158,6 @@ struct StreakEngine {
         return (streak, StarState(total: stars, byDate: byDate, perfectWeeks: perfectWeeks))
     }
 
-    func streak() -> StreakState { compute().streak }
-    func stars() -> StarState { compute().stars }
-
     // MARK: Rewards
 
     /// How far each reward is. Only confirmed days count, so a reward can't be earned and then

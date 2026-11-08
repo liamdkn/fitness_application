@@ -27,7 +27,7 @@ final class SupabaseService: ObservableObject {
         }
         // A harmless placeholder keeps the client constructible; nothing is
         // ever sent to it because the app shows the error instead.
-        let url = configuredURL ?? URL(string: "https://invalid.example")!
+        let url = configuredURL ?? URL(string: "https://invalid.example") ?? URL(fileURLWithPath: "/")
         let anonKey = configuredAnonKey ?? ""
 
         // `emitLocalSessionAsInitialSession: true` opts into the library's
@@ -76,8 +76,10 @@ final class SupabaseService: ObservableObject {
     }
 
     func signOut() async throws {
+        // AuthClient removes its local session before making the remote request.
+        // Clear account-scoped caches even if that request fails offline.
+        defer { LocalData.wipe() }
         try await client.auth.signOut()
-        LocalData.wipe()
     }
 }
 

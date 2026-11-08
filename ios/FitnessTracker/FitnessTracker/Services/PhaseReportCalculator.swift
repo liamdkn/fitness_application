@@ -239,7 +239,8 @@ struct PhaseReportCalculator {
         let planned = goal.weeklyWeightChangeKg
         let weeksElapsed = Double(daysElapsed) / 7
         let plannedToDate = planned.map { $0 * weeksElapsed }
-        let change = (trendKg != nil && startKg != nil) ? trendKg! - startKg! : nil
+        let change: Double?
+        if let trendKg, let startKg { change = trendKg - startKg } else { change = nil }
         var percent: Double?
         if let change, let plannedToDate, abs(plannedToDate) > 0.0001 { percent = change / plannedToDate * 100 }
 
@@ -352,11 +353,11 @@ struct PhaseReportCalculator {
             let ordered = sessions.compactMap { id, best in dateById[id].map { (date: $0, best: best) } }.sorted { $0.date < $1.date }
             guard let first = ordered.first, ordered.count >= 2 else { continue }
             let lastTwo = ordered.suffix(2)
+            guard let gapStart = lastTwo.first?.date, let gapEnd = lastTwo.last?.date else { continue }
             let recent = lastTwo.map(\.best.e1rm).reduce(0, +) / Double(lastTwo.count)
             let peak = ordered.map(\.best.e1rm).max() ?? first.best.e1rm
             let percent = (recent - first.best.e1rm) / first.best.e1rm * 100
             // A drop after a gap of more than 10 days, or an illness in it, isn't a real loss of strength.
-            let gapStart = lastTwo.first!.date, gapEnd = lastTwo.last!.date
             let gapDays = days(from: gapStart, to: gapEnd)
             var sickInGap = false
             var cursor = calendar.date(byAdding: .day, value: 1, to: gapStart) ?? gapStart

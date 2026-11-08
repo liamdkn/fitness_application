@@ -39,9 +39,15 @@ async function main() {
   const to = (rest.find((a) => a.startsWith('--to=')) || '').slice(5);
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set (supabase/.env)');
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  // Keep certificate validation enabled: this tool carries database credentials
+  // and executes schema changes, so encryption without server verification is
+  // not sufficient.
+  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: true } });
   await client.connect();
+  const lockName = 'fitness_application_schema_migrations';
   try {
+    // Prevent two deploy jobs from applying the same pending migration at once.
+    await client.query('select pg_advisory_lock(hashtext($1))', [lockName]);
     await client.query(`
       create table if not exists schema_migrations (
         version text primary key,
@@ -51,11 +57,15 @@ async function main() {
     const applied = new Map((await client.query('select version, checksum from schema_migrations')).rows.map((r) => [r.version, r.checksum]));
     const all = files();
 
-    // A migration edited after it was applied is a problem worth shouting about.
-    for (const file of all) {
-      if (applied.has(file) && applied.get(file) !== checksum(file) && applied.get(file) !== 'baseline') {
-        console.warn(`warning: ${file} has changed since it was applied`);
-      }
+    // A migration edited after it was applied means the source tree and database
+    // no longer describe the same schema. Allow status to display the mismatch,
+    // but never let deploy/baseline proceed until it is reconciled explicitly.
+    const changedApplied = all.filter((file) =>
+      applied.has(file) && applied.get(file) !== checksum(file) && applied.get(file) !== 'baseline'
+    );
+    for (const file of changedApplied) console.warn(`CHECKSUM MISMATCH  ${file} changed after it was applied`);
+    if (changedApplied.length && command !== 'status') {
+      throw new Error(`Refusing to ${command}: applied migrations changed (${changedApplied.join(', ')}). Reconcile the database and migration history first.`);
     }
     const waiting = all.filter((f) => !applied.has(f));
 
@@ -92,6 +102,7 @@ async function main() {
       throw new Error(`unknown command "${command}" (status, up, baseline)`);
     }
   } finally {
+    await client.query('select pg_advisory_unlock(hashtext($1))', [lockName]).catch(() => {});
     await client.end();
   }
 }

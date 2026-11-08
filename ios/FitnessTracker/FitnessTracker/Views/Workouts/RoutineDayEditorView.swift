@@ -249,7 +249,13 @@ struct RoutineDayEditorView: View {
         dayExercises.remove(atOffsets: offsets)
         Task {
             for dayExercise in toRemove {
-                try? await routineRepository.removeExercise(dayExerciseId: dayExercise.id)
+                do {
+                    try await routineRepository.removeExercise(dayExerciseId: dayExercise.id)
+                } catch {
+                    errorMessage = error.localizedDescription
+                    await load()
+                    return
+                }
             }
         }
     }

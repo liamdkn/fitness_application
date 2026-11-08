@@ -104,6 +104,7 @@ struct DailyCheckinRepository {
 
     @discardableResult
     func save(
+        ownerId: UUID? = nil,
         date: Date,
         weightKg: Double?,
         routineDayId: UUID?,
@@ -116,7 +117,8 @@ struct DailyCheckinRepository {
         yesterdayOffPlanNotes: String?,
         yesterdayHungerLevel: Int? = nil
     ) async throws -> DailyCheckin {
-        let userId = try await client.auth.session.user.id
+        let userId: UUID
+        if let ownerId { userId = ownerId } else { userId = try await client.auth.session.user.id }
         let payload = NewDailyCheckin(
             user_id: userId,
             checkin_date: DateFormatting.isoDate(date),

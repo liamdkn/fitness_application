@@ -283,6 +283,7 @@ struct MealEntryRepository {
     /// its later edits) to Supabase - see `UpsertMealEntry`.
     func upsertEntry(
         id: UUID,
+        ownerId: UUID,
         date: String,
         mealSlotId: UUID,
         foodId: UUID?,
@@ -291,13 +292,12 @@ struct MealEntryRepository {
         loggedAt: Date,
         eatenAt: Date?
     ) async throws {
-        let userId = try await client.auth.session.user.id
         try await client
             .from("meal_entries")
             .upsert(
                 UpsertMealEntry(
                     id: id,
-                    user_id: userId,
+                    user_id: ownerId,
                     date: date,
                     meal_slot_id: mealSlotId,
                     food_id: foodId,

@@ -1,6 +1,14 @@
 import SwiftUI
 import Supabase
 
+private enum AccountExportError: LocalizedError {
+    case pendingChanges
+
+    var errorDescription: String? {
+        "Some offline changes are still waiting to sync. Connect to the internet and try exporting again so your file includes them."
+    }
+}
+
 /// Take a copy of everything the account holds, or delete the account.
 struct AccountDataView: View {
     @State private var exportURL: URL?
@@ -62,6 +70,7 @@ struct AccountDataView: View {
         do {
             // Anything not sent yet goes first, so the export is complete.
             await LocalData.flushAll()
+            guard LocalData.unsentCount == 0 else { throw AccountExportError.pendingChanges }
             let response = try await SupabaseService.shared.client.rpc("export_my_data").execute()
             let name = "FitnessTracker-export-\(DateFormatting.isoDate(Date())).json"
             let url = FileManager.default.temporaryDirectory.appending(path: name)
@@ -119,7 +128,7 @@ private struct DeleteAccountSheet: View {
         defer { isDeleting = false }
         do {
             try await ProgressPhotoRepository().deleteAllFiles()
-            try? await RewardRepository().deleteAllFiles()
+            try await RewardRepository().deleteAllFiles()
             try await SupabaseService.shared.client.rpc("delete_my_account").execute()
             // The login no longer exists; clear this phone and go back to sign-in.
             try? await SupabaseService.shared.signOut()

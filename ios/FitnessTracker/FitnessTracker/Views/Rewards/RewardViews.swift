@@ -69,6 +69,7 @@ struct RewardsView: View {
     @StateObject private var viewModel = CoachViewModel()
     @State private var showingEditor = false
     @State private var rewardToDelete: Reward?
+    @State private var rewardDeleteError: String?
     @AppStorage(StreakNudgeService.enabledKey) private var nudgeEnabled = true
     @Environment(\.openURL) private var openURL
 
@@ -147,11 +148,23 @@ struct RewardsView: View {
             Button("Delete Reward", role: .destructive) {
                 if let reward = rewardToDelete {
                     Task {
-                        try? await RewardRepository().delete(reward)
-                        await viewModel.load()
+                        do {
+                            try await RewardRepository().delete(reward)
+                            await viewModel.load()
+                        } catch {
+                            rewardDeleteError = error.localizedDescription
+                        }
                     }
                 }
             }
+        }
+        .alert("Couldn't delete reward", isPresented: Binding(
+            get: { rewardDeleteError != nil },
+            set: { if !$0 { rewardDeleteError = nil } }
+        )) {
+            Button("OK", role: .cancel) { rewardDeleteError = nil }
+        } message: {
+            Text(rewardDeleteError ?? "Please try again.")
         }
     }
 

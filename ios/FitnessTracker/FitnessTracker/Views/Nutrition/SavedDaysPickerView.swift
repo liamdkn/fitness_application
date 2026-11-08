@@ -70,9 +70,13 @@ struct SavedDaysPickerView: View {
 
     private func delete(at offsets: IndexSet) async {
         let toDelete = offsets.map { savedDays[$0] }
-        savedDays.remove(atOffsets: offsets)
         for savedDay in toDelete {
-            try? await repository.delete(id: savedDay.id)
+            do {
+                try await repository.delete(id: savedDay.id)
+                savedDays.removeAll { $0.id == savedDay.id }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

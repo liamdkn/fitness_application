@@ -116,7 +116,7 @@ struct BodyWeightRepository {
     /// should win over a stale HealthKit sync too. Returns `nil` when
     /// nothing's logged yet today, so the caller knows to insert instead.
     @discardableResult
-    func updateTodaysWeight(kg: Double) async throws -> BodyWeightLog? {
+    func updateTodaysWeight(kg: Double, ownerId: UUID? = nil) async throws -> BodyWeightLog? {
         let startOfToday = Calendar.current.startOfDay(for: Date())
         let todaysLogs: [BodyWeightLog] = try await client
             .from("body_weight_logs")
@@ -138,8 +138,9 @@ struct BodyWeightRepository {
     }
 
     @discardableResult
-    func logWeight(kg: Double) async throws -> BodyWeightLog {
-        let userId = try await client.auth.session.user.id
+    func logWeight(kg: Double, ownerId: UUID? = nil) async throws -> BodyWeightLog {
+        let userId: UUID
+        if let ownerId { userId = ownerId } else { userId = try await client.auth.session.user.id }
         let inserted: [BodyWeightLog] = try await client
             .from("body_weight_logs")
             .insert(NewBodyWeightLog(user_id: userId, weight_kg: kg, source: "manual"))

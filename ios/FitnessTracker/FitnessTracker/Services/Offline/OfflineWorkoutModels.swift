@@ -21,6 +21,8 @@ enum SyncState: Int, Codable {
 @Model
 final class QueuedWorkout {
     @Attribute(.unique) var id: UUID
+    /// Account that owns this local workout and all of its queued child writes.
+    var ownerId: UUID?
     var routineDayId: UUID?
     var gymId: UUID?
     var startedAt: Date
@@ -42,8 +44,9 @@ final class QueuedWorkout {
     @Relationship(deleteRule: .cascade, inverse: \QueuedWorkoutExercise.workout)
     var exercises: [QueuedWorkoutExercise] = []
 
-    init(id: UUID, routineDayId: UUID?, gymId: UUID?, startedAt: Date, performedAt: Date, syncState: SyncState) {
+    init(id: UUID, ownerId: UUID? = nil, routineDayId: UUID?, gymId: UUID?, startedAt: Date, performedAt: Date, syncState: SyncState) {
         self.id = id
+        self.ownerId = ownerId
         self.routineDayId = routineDayId
         self.gymId = gymId
         self.startedAt = startedAt
@@ -60,6 +63,7 @@ final class QueuedWorkout {
 @Model
 final class QueuedWorkoutSet {
     @Attribute(.unique) var id: UUID
+    var ownerId: UUID?
     var workout: QueuedWorkout?
     var exerciseId: UUID
     var setIndex: Int
@@ -73,6 +77,7 @@ final class QueuedWorkoutSet {
 
     init(
         id: UUID,
+        ownerId: UUID? = nil,
         exerciseId: UUID,
         setIndex: Int,
         reps: Int,
@@ -83,6 +88,7 @@ final class QueuedWorkoutSet {
         syncState: SyncState
     ) {
         self.id = id
+        self.ownerId = ownerId
         self.exerciseId = exerciseId
         self.setIndex = setIndex
         self.reps = reps
@@ -99,14 +105,16 @@ final class QueuedWorkoutSet {
 @Model
 final class QueuedWorkoutExercise {
     @Attribute(.unique) var id: UUID
+    var ownerId: UUID?
     var workout: QueuedWorkout?
     var exerciseId: UUID
     var position: Int
     var syncState: SyncState
     var pendingDeletion: Bool
 
-    init(id: UUID, exerciseId: UUID, position: Int, syncState: SyncState) {
+    init(id: UUID, ownerId: UUID? = nil, exerciseId: UUID, position: Int, syncState: SyncState) {
         self.id = id
+        self.ownerId = ownerId
         self.exerciseId = exerciseId
         self.position = position
         self.syncState = syncState

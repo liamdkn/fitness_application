@@ -200,6 +200,7 @@ struct WorkoutRepository {
     /// row instead of erroring on a duplicate id or creating a second one.
     func upsertWorkout(
         id: UUID,
+        ownerId: UUID,
         routineDayId: UUID?,
         gymId: UUID?,
         startedAt: Date,
@@ -208,13 +209,12 @@ struct WorkoutRepository {
         notes: String?,
         rating: Int?
     ) async throws {
-        let userId = try await client.auth.session.user.id
         try await client
             .from("workouts")
             .upsert(
                 UpsertWorkout(
                     id: id,
-                    user_id: userId,
+                    user_id: ownerId,
                     routine_day_id: routineDayId,
                     gym_id: gymId,
                     started_at: startedAt,
@@ -231,6 +231,7 @@ struct WorkoutRepository {
     /// Used only by `OfflineWorkoutQueue` - see `upsertWorkout`.
     func upsertSet(
         id: UUID,
+        ownerId: UUID,
         workoutId: UUID,
         exerciseId: UUID,
         setIndex: Int,
@@ -240,14 +241,13 @@ struct WorkoutRepository {
         isWarmup: Bool,
         isDropSet: Bool
     ) async throws {
-        let userId = try await client.auth.session.user.id
         try await client
             .from("workout_sets")
             .upsert(
                 UpsertWorkoutSet(
                     id: id,
                     workout_id: workoutId,
-                    user_id: userId,
+                    user_id: ownerId,
                     exercise_id: exerciseId,
                     set_index: setIndex,
                     reps: reps,
@@ -262,12 +262,11 @@ struct WorkoutRepository {
     }
 
     /// Used only by `OfflineWorkoutQueue` - see `upsertWorkout`.
-    func upsertWorkoutExercise(id: UUID, workoutId: UUID, exerciseId: UUID, position: Int) async throws {
-        let userId = try await client.auth.session.user.id
+    func upsertWorkoutExercise(id: UUID, ownerId: UUID, workoutId: UUID, exerciseId: UUID, position: Int) async throws {
         try await client
             .from("workout_exercises")
             .upsert(
-                UpsertWorkoutExercise(id: id, workout_id: workoutId, user_id: userId, exercise_id: exerciseId, position: position),
+                UpsertWorkoutExercise(id: id, workout_id: workoutId, user_id: ownerId, exercise_id: exerciseId, position: position),
                 onConflict: "id"
             )
             .execute()

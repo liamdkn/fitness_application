@@ -1,3 +1,4 @@
+import Auth
 import Foundation
 import SwiftData
 
@@ -79,10 +80,12 @@ final class OfflineMealQueue {
         // Logging as you eat records the real time. A past or future day, or
         // a bulk copy of earlier meals, isn't being eaten now, so its time is
         // left unknown until set by hand.
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
         let now = Date()
         let local = QueuedMealEntry(
             id: UUID(),
             date: DateFormatting.isoDate(date),
+            ownerId: ownerId,
             mealSlotId: mealSlotId,
             foodId: foodId,
             recipeId: recipeId,
@@ -103,8 +106,9 @@ final class OfflineMealQueue {
     /// flush is still catching up - so a day partly logged offline still
     /// shows everything the moment it's reopened, connected or not.
     func fetchEntries(date: Date) async throws -> [MealEntry] {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
         let dateString = DateFormatting.isoDate(date)
-        let localRows = try fetchLocalEntries(date: dateString)
+        let localRows = try fetchLocalEntries(date: dateString).filter { $0.ownerId == ownerId }
         let remote = try? await mealEntryRepository.fetchEntries(date: date)
         return merged(local: localRows, remote: remote)
     }
@@ -136,11 +140,12 @@ final class OfflineMealQueue {
     /// insights and widgets total from, so food logged offline counts
     /// immediately and a failed server read just leaves the local rows.
     func fetchEntries(from: Date, to: Date) async throws -> [MealEntry] {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
         let fromString = DateFormatting.isoDate(from)
         let toString = DateFormatting.isoDate(to)
         let localRows = try context.fetch(FetchDescriptor<QueuedMealEntry>(
             predicate: #Predicate { $0.date >= fromString && $0.date <= toString }
-        ))
+        )).filter { $0.ownerId == ownerId }
         let remote = try? await mealEntryRepository.fetchEntries(from: from, to: to)
         return merged(local: localRows, remote: remote)
     }
@@ -150,10 +155,11 @@ final class OfflineMealQueue {
     /// `fetchEntries(date:)`, so a portion just logged offline (or not yet
     /// flushed) counts immediately instead of the prep looking untouched.
     func eatenQuantities(recipeIds: [UUID]) async -> [UUID: Double] {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return [:] }
         let wanted = Set(recipeIds)
         let remote = (try? await mealEntryRepository.fetchEntries(recipeIds: recipeIds)) ?? []
         var byId = Dictionary(uniqueKeysWithValues: remote.map { ($0.id, $0) })
-        let localRows = (try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? []
+        let localRows = ((try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? []).filter { $0.ownerId == ownerId }
         for local in localRows {
             guard let recipeId = local.recipeId, wanted.contains(recipeId) else { continue }
             if local.pendingDeletion {
@@ -228,9 +234,17 @@ final class OfflineMealQueue {
 
     /// Entries not yet confirmed on the server (new, edited or deleted here).
     var unsyncedCount: Int {
-        ((try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? [])
-            .filter { $0.syncState == .pending || $0.pendingDeletion }
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return 0 }
+        return ((try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? [])
+            .filter { $0.ownerId == ownerId && ($0.syncState == .pending || $0.pendingDeletion) }
             .count
+    }
+
+    /// Claim only legacy rows that predate owner stamps; new writes always carry an owner.
+    func adoptUnowned(by ownerId: UUID) {
+        let rows = (try? context.fetch(FetchDescriptor<QueuedMealEntry>())) ?? []
+        for row in rows where row.ownerId == nil { row.ownerId = ownerId }
+        try? context.save()
     }
 
     /// Removes everything held locally - at sign-out or when a different
@@ -247,9 +261,11 @@ final class OfflineMealQueue {
     }
 
     private func fetchLocalEntry(id: UUID) throws -> QueuedMealEntry? {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return nil }
         var descriptor = FetchDescriptor<QueuedMealEntry>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
+        guard let entry = try context.fetch(descriptor).first, entry.ownerId == ownerId else { return nil }
+        return entry
     }
 
     // MARK: - Sync
@@ -268,11 +284,12 @@ final class OfflineMealQueue {
 
         repeat {
             flushAgainRequested = false
-            guard networkMonitor.isConnected else { return }
+            guard networkMonitor.isConnected,
+                  let ownerId = SupabaseService.shared.session?.user.id else { return }
 
             guard let entries = try? context.fetch(FetchDescriptor<QueuedMealEntry>()) else { return }
-            for entry in entries {
-                await flush(entry)
+            for entry in entries where entry.ownerId == ownerId {
+                await flush(entry, ownerId: ownerId)
             }
             try? context.save()
         } while flushAgainRequested
@@ -281,7 +298,10 @@ final class OfflineMealQueue {
         try? context.save()
     }
 
-    private func flush(_ entry: QueuedMealEntry) async {
+    private func flush(_ entry: QueuedMealEntry, ownerId: UUID) async {
+        // Re-check after each suspension point at the caller and bind the
+        // request body to this owner; RLS rejects it if auth changed meanwhile.
+        guard entry.ownerId == ownerId, SupabaseService.shared.session?.user.id == ownerId else { return }
         if entry.pendingDeletion {
             do {
                 try await mealEntryRepository.deleteEntry(id: entry.id)
@@ -295,8 +315,10 @@ final class OfflineMealQueue {
 
         if entry.syncState == .pending {
             do {
+                guard SupabaseService.shared.session?.user.id == ownerId else { return }
                 try await mealEntryRepository.upsertEntry(
                     id: entry.id,
+                    ownerId: ownerId,
                     date: entry.date,
                     mealSlotId: entry.mealSlotId,
                     foodId: entry.foodId,
@@ -316,9 +338,10 @@ final class OfflineMealQueue {
     /// couple of days after logging - once fully synced and past
     /// `pruneAfter`, Supabase is the only copy that needs to exist.
     private func pruneOldSyncedEntries() {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return }
         guard let entries = try? context.fetch(FetchDescriptor<QueuedMealEntry>()) else { return }
         let cutoff = Date().addingTimeInterval(-pruneAfter)
-        for entry in entries {
+        for entry in entries where entry.ownerId == ownerId {
             guard entry.syncState == .synced, entry.loggedAt < cutoff else { continue }
             context.delete(entry)
         }

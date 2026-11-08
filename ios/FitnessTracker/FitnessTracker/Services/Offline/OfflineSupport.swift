@@ -33,6 +33,13 @@ enum OfflineError {
 
 import SwiftData
 
+/// A queue write must always belong to the signed-in account.
+enum OfflineQueueError: LocalizedError {
+    case signInRequired
+
+    var errorDescription: String? { "Sign in before saving this change offline." }
+}
+
 /// Opens an on-disk SwiftData store. If it can't be opened (a corrupt or
 /// incompatible file), that file is moved aside - kept, not deleted, so it
 /// can be recovered by hand - and a fresh store is created; if even that
@@ -42,21 +49,44 @@ import SwiftData
 @MainActor
 func makeResilientContainer(name: String, models: [any PersistentModel.Type]) -> ModelContainer {
     let schema = Schema(models)
-    let url = URL.applicationSupportDirectory.appending(path: "\(name).store")
+    let supportDirectory = URL.applicationSupportDirectory
+    let url = supportDirectory.appending(path: "\(name).store")
+    try? FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+    try? FileManager.default.setAttributes(
+        [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+        ofItemAtPath: supportDirectory.path
+    )
     func open(inMemory: Bool = false) throws -> ModelContainer {
         let configuration = inMemory
             ? ModelConfiguration(name, schema: schema, isStoredInMemoryOnly: true)
             : ModelConfiguration(name, schema: schema, url: url)
         return try ModelContainer(for: schema, configurations: configuration)
     }
-    if let container = try? open() { return container }
+    func applyProtection() {
+        for suffix in ["", "-shm", "-wal"] {
+            let file = URL(fileURLWithPath: url.path + suffix)
+            if FileManager.default.fileExists(atPath: file.path) {
+                try? FileManager.default.setAttributes(
+                    [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                    ofItemAtPath: file.path
+                )
+            }
+        }
+    }
+    if let container = try? open() {
+        applyProtection()
+        return container
+    }
     NSLog("Offline store \(name) could not be opened - moving it aside and starting a fresh one")
     let stamp = ISO8601DateFormatter().string(from: Date())
     for suffix in ["", "-shm", "-wal"] {
         let file = URL(fileURLWithPath: url.path + suffix)
         try? FileManager.default.moveItem(at: file, to: URL(fileURLWithPath: file.path + ".corrupt-\(stamp)"))
     }
-    if let container = try? open() { return container }
+    if let container = try? open() {
+        applyProtection()
+        return container
+    }
     NSLog("Offline store \(name) still failing - running in memory this launch")
     if let container = try? open(inMemory: true) { return container }
     // An in-memory store failing means SwiftData itself is broken.

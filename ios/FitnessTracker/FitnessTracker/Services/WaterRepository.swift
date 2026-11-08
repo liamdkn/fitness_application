@@ -134,7 +134,7 @@ struct WaterRepository {
             try await upsertLog(log)
         } catch {
             guard OfflineError.isConnectivity(error) else { throw error }
-            OfflineOutbox.shared.enqueue(.addWater(log))
+            try OfflineOutbox.shared.enqueue(.addWater(log))
         }
         return log
     }
@@ -148,8 +148,9 @@ struct WaterRepository {
     }
 
     /// Sends one log to the server - safe to repeat (same id, same row).
-    func upsertLog(_ log: WaterLog) async throws {
-        let userId = try await client.auth.session.user.id
+    func upsertLog(_ log: WaterLog, ownerId: UUID? = nil) async throws {
+        let userId: UUID
+        if let ownerId { userId = ownerId } else { userId = try await client.auth.session.user.id }
         try await client
             .from("water_logs")
             .upsert(
@@ -173,7 +174,7 @@ struct WaterRepository {
             try await deleteLogOnServer(id: id)
         } catch {
             guard OfflineError.isConnectivity(error) else { throw error }
-            OfflineOutbox.shared.enqueue(.deleteWater(id))
+            try OfflineOutbox.shared.enqueue(.deleteWater(id))
         }
     }
 

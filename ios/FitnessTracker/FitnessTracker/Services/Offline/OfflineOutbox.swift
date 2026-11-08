@@ -2,7 +2,7 @@ import Foundation
 import Supabase
 
 /// Everything a daily check-in writes, captured so it can be sent later:
-/// the check-in row, the weigh-in, and the sleep entry.
+/// the check-in row, the weigh-in, the waist, and the sleep entry.
 struct QueuedDailyCheckin: Codable {
     let date: Date
     let weightKg: Double?
@@ -22,6 +22,8 @@ struct QueuedDailyCheckin: Codable {
     /// Only set when the user changed it - an unchanged Health-synced value
     /// isn't written back.
     let sleepMinutes: Int?
+    /// Waist in cm, entered under the weight (nil for check-ins queued by older builds).
+    var waistCm: Double? = nil
 }
 
 /// The three writes a daily check-in makes, in order. Used when saving
@@ -30,8 +32,10 @@ struct QueuedDailyCheckin: Codable {
 /// weight and sleep steps is ignored as before.
 enum DailyCheckinSubmitter {
     @MainActor
-    static func submit(_ checkin: QueuedDailyCheckin) async throws {
+    static func submit(_ checkin: QueuedDailyCheckin, ownerId: UUID) async throws {
+        guard SupabaseService.shared.session?.user.id == ownerId else { throw OfflineQueueError.signInRequired }
         try await DailyCheckinRepository().save(
+            ownerId: ownerId,
             date: checkin.date,
             weightKg: checkin.weightKg,
             routineDayId: checkin.routineDayId,
@@ -47,31 +51,43 @@ enum DailyCheckinSubmitter {
 
         if let status = checkin.yesterdayStatus,
            let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: checkin.date) {
-            try await DayFlagRepository().set(date: yesterday, status: DayStatus(rawValue: status))
+            guard SupabaseService.shared.session?.user.id == ownerId else { throw OfflineQueueError.signInRequired }
+            try await DayFlagRepository().set(date: yesterday, status: DayStatus(rawValue: status), ownerId: ownerId)
         }
 
         if let weightKg = checkin.weightKg {
+            guard SupabaseService.shared.session?.user.id == ownerId else { throw OfflineQueueError.signInRequired }
             let bodyWeight = BodyWeightRepository()
             var updated: BodyWeightLog?
             do {
-                updated = try await bodyWeight.updateTodaysWeight(kg: weightKg)
+                updated = try await bodyWeight.updateTodaysWeight(kg: weightKg, ownerId: ownerId)
             } catch {
                 if OfflineError.isConnectivity(error) { throw error }
             }
             if updated == nil {
                 do {
-                    _ = try await bodyWeight.logWeight(kg: weightKg)
+                    _ = try await bodyWeight.logWeight(kg: weightKg, ownerId: ownerId)
                 } catch {
                     if OfflineError.isConnectivity(error) { throw error }
                 }
             }
         }
 
+        if let waistCm = checkin.waistCm {
+            do {
+                guard SupabaseService.shared.session?.user.id == ownerId else { throw OfflineQueueError.signInRequired }
+                try await BodyMeasurementRepository().saveDailyWaist(cm: waistCm, date: checkin.date, ownerId: ownerId)
+            } catch {
+                if OfflineError.isConnectivity(error) { throw error }
+            }
+        }
+
         if let minutes = checkin.sleepMinutes {
             do {
+                guard SupabaseService.shared.session?.user.id == ownerId else { throw OfflineQueueError.signInRequired }
                 try await HealthRepository().upsertSleep([
                     SleepLog(
-                        userId: try await SupabaseService.shared.client.auth.session.user.id,
+                        userId: ownerId,
                         date: DateFormatting.isoDate(checkin.date),
                         totalSleepMinutes: minutes,
                         inBedMinutes: minutes,
@@ -133,8 +149,9 @@ final class OfflineOutbox {
 
     var hasPending: Bool { !entries.isEmpty }
 
-    func enqueue(_ operation: Operation) {
-        entries.append(Entry(id: UUID(), operation: operation, attempts: 0, ownerId: SupabaseService.shared.session?.user.id))
+    func enqueue(_ operation: Operation) throws {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
+        entries.append(Entry(id: UUID(), operation: operation, attempts: 0, ownerId: ownerId))
         persist()
         scheduleRetry()
     }
@@ -164,8 +181,9 @@ final class OfflineOutbox {
     }
 
     func cancelPendingAddWater(id: UUID) -> Bool {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return false }
         guard let index = entries.firstIndex(where: {
-            if case .addWater(let log) = $0.operation { return log.id == id }
+            if case .addWater(let log) = $0.operation { return log.id == id && $0.ownerId == ownerId }
             return false
         }) else { return false }
         entries.remove(at: index)
@@ -174,8 +192,9 @@ final class OfflineOutbox {
     }
 
     func cancelPendingSupplementLog(id: UUID) -> Bool {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return false }
         guard let index = entries.firstIndex(where: {
-            if case .addSupplementLog(let log) = $0.operation { return log.id == id }
+            if case .addSupplementLog(let log) = $0.operation { return log.id == id && $0.ownerId == ownerId }
             return false
         }) else { return false }
         entries.remove(at: index)
@@ -185,9 +204,10 @@ final class OfflineOutbox {
 
     /// Same as `applyingPendingWater`, for supplement doses.
     func applyingPendingSupplementLogs(to logs: [SupplementLog], date: String) -> [SupplementLog] {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return logs }
         var result = logs
         var deletedIds = Set<UUID>()
-        for entry in entries {
+        for entry in entries where entry.ownerId == ownerId {
             switch entry.operation {
             case .addSupplementLog(let log) where log.date == date && !result.contains(where: { $0.id == log.id }):
                 result.append(log)
@@ -202,9 +222,10 @@ final class OfflineOutbox {
 
     /// `logs` for `date` with pending adds included and pending deletes hidden.
     func applyingPendingWater(to logs: [WaterLog], date: String) -> [WaterLog] {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return logs }
         var result = logs
         var deletedIds = Set<UUID>()
-        for entry in entries {
+        for entry in entries where entry.ownerId == ownerId {
             switch entry.operation {
             case .addWater(let log) where log.date == date && !result.contains(where: { $0.id == log.id }):
                 result.append(log)
@@ -223,31 +244,29 @@ final class OfflineOutbox {
         guard !isFlushing, !entries.isEmpty else { return }
         isFlushing = true
         defer { isFlushing = false }
-
-        // Entries queued by someone else can never be sent as the current user:
-            // drop them rather than write another person's data into this account.
         guard let currentUser = SupabaseService.shared.session?.user.id else { return }
-        let before = entries.count
-        entries.removeAll { $0.ownerId != nil && $0.ownerId != currentUser }
-        if entries.count != before { persist() }
 
-        while let first = entries.first {
+        while SupabaseService.shared.session?.user.id == currentUser,
+              let first = entries.first {
             guard first.ownerId == currentUser else {
-                // No recorded owner: can't be vouched for, so it isn't sent.
-                entries.removeFirst()
-                persist()
-                continue
+                // Never send or discard another account's work here. Account
+                // switching clears the store; an unknown legacy owner waits for adoption.
+                return
             }
             do {
-                try await perform(first.operation)
+                try await perform(first.operation, ownerId: currentUser)
+                // LocalData.wipe() or a new-account queue can run while the
+                // request is suspended. Remove only the exact entry we sent.
+                guard SupabaseService.shared.session?.user.id == currentUser else { return }
+                guard entries.first?.id == first.id else { continue }
                 entries.removeFirst()
                 persist()
             } catch {
+                guard SupabaseService.shared.session?.user.id == currentUser,
+                      let index = entries.firstIndex(where: { $0.id == first.id }) else { return }
                 if !OfflineError.isConnectivity(error) {
-                    // A real rejection: try a few times, then give up on it so
-                    // one bad entry can't hold up everything behind it.
-                    entries[0].attempts += 1
-                    if entries[0].attempts >= Self.maxAttempts { entries.removeFirst() }
+                    entries[index].attempts += 1
+                    if entries[index].attempts >= Self.maxAttempts { entries.remove(at: index) }
                     persist()
                 }
                 break
@@ -256,16 +275,16 @@ final class OfflineOutbox {
         if entries.isEmpty { retryTask?.cancel() } else { scheduleRetry() }
     }
 
-    private func perform(_ operation: Operation) async throws {
+    private func perform(_ operation: Operation, ownerId: UUID) async throws {
         switch operation {
         case .addWater(let log):
-            try await WaterRepository().upsertLog(log)
+            try await WaterRepository().upsertLog(log, ownerId: ownerId)
         case .deleteWater(let id):
             try await WaterRepository().deleteLogOnServer(id: id)
         case .dailyCheckin(let checkin):
-            try await DailyCheckinSubmitter.submit(checkin)
+            try await DailyCheckinSubmitter.submit(checkin, ownerId: ownerId)
         case .addSupplementLog(let log):
-            try await SupplementRepository().upsertLog(log)
+            try await SupplementRepository().upsertLog(log, ownerId: ownerId)
         case .deleteSupplementLog(let id):
             try await SupplementRepository().deleteLogOnServer(id: id)
         }
@@ -286,7 +305,7 @@ final class OfflineOutbox {
     private func persist() {
         do {
             try FileManager.default.createDirectory(at: URL.applicationSupportDirectory, withIntermediateDirectories: true)
-            try JSONEncoder().encode(entries).write(to: fileURL, options: .atomic)
+            try JSONEncoder().encode(entries).write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         } catch {
             // Best effort - the in-memory queue still works for this session.
         }

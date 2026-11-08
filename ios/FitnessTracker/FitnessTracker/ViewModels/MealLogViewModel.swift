@@ -140,7 +140,8 @@ final class MealLogViewModel: ObservableObject {
         Task { await WidgetSnapshotService.shared.refresh(force: true) }
     }
 
-    func logFood(_ food: Food, quantity: Double, mealSlotId: UUID, date: Date) async {
+    @discardableResult
+    func logFood(_ food: Food, quantity: Double, mealSlotId: UUID, date: Date) async -> Bool {
         do {
             let times = mealTimes()
             let entry = try offlineQueue.addFoodEntry(date: date, mealSlotId: mealSlotId, foodId: food.id, quantity: quantity)
@@ -148,8 +149,10 @@ final class MealLogViewModel: ObservableObject {
             entries.append(entry)
             await align([entry], to: times)
             refreshWidgets()
+            return true
         } catch {
             errorMessage = error.localizedDescription
+            return false
         }
     }
 

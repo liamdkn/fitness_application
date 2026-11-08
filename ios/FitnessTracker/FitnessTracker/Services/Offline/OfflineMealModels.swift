@@ -8,6 +8,8 @@ import SwiftData
 final class QueuedMealEntry {
     @Attribute(.unique) var id: UUID
     var date: String
+    /// Account that created this queued record. Optional only for older local stores.
+    var ownerId: UUID?
     var mealSlotId: UUID
     var foodId: UUID?
     var recipeId: UUID?
@@ -21,6 +23,7 @@ final class QueuedMealEntry {
     init(
         id: UUID,
         date: String,
+        ownerId: UUID? = nil,
         mealSlotId: UUID,
         foodId: UUID?,
         recipeId: UUID?,
@@ -31,6 +34,7 @@ final class QueuedMealEntry {
     ) {
         self.id = id
         self.date = date
+        self.ownerId = ownerId
         self.mealSlotId = mealSlotId
         self.foodId = foodId
         self.recipeId = recipeId

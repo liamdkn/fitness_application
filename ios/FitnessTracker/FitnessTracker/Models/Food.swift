@@ -113,7 +113,7 @@ struct Food: Codable, Identifiable, Hashable {
     /// not an absolute gram amount.
     func calories(at quantity: Double) -> Double { calories * quantity }
     func proteinG(at quantity: Double) -> Double { proteinG * quantity }
-    func carbsG(at quantity: Double) -> Double { carbsG * quantity }
+    nonisolated func carbsG(at quantity: Double) -> Double { carbsG * quantity }
     func fatG(at quantity: Double) -> Double { fatG * quantity }
     func fiberG(at quantity: Double) -> Double? { fiberG.map { $0 * quantity } }
     func sodiumMg(at quantity: Double) -> Double? { sodiumMg.map { $0 * quantity } }

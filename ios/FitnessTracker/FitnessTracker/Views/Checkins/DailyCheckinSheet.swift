@@ -7,6 +7,7 @@ struct DailyCheckinSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var weightText = ""
+    @State private var waistText = ""
     @State private var routineDays: [RoutineDay] = []
     @State private var selectedWorkoutChoice: WorkoutChoice = .rest
     @State private var energyLevel = 5
@@ -57,6 +58,19 @@ struct DailyCheckinSheet: View {
                                 weightText = Self.filteredDecimalText(newValue, maxDecimalPlaces: 1)
                             }
                         Text("kg").foregroundStyle(.secondary).font(.caption)
+                    }
+
+                    HStack {
+                        Text("Waist")
+                        Spacer()
+                        TextField("-", text: $waistText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 80)
+                            .onChange(of: waistText) { _, newValue in
+                                waistText = Self.filteredDecimalText(newValue, maxDecimalPlaces: 1, max: 200)
+                            }
+                        Text("cm").foregroundStyle(.secondary).font(.caption)
                     }
 
                     Picker("Today's Workout", selection: $selectedWorkoutChoice) {
@@ -228,6 +242,9 @@ struct DailyCheckinSheet: View {
                    .last(where: { Calendar.current.isDateInToday($0.loggedAt) }) {
                 weightText = String(format: "%.1f", todays.weightKg)
             }
+            if let waist = try? await BodyMeasurementRepository().waist(on: Date()) {
+                waistText = String(format: "%.1f", waist)
+            }
             if let sleepLog = try await healthRepository.fetchSleepLog(date: Date()) {
                 existingSleepLog = sleepLog
                 yesterdaySleepHoursText = String(format: "%.2f", Double(sleepLog.totalSleepMinutes) / 60.0)
@@ -245,6 +262,8 @@ struct DailyCheckinSheet: View {
         defer { isSaving = false }
 
         let weightKg = Double(weightText)
+        // Nothing, or a zero, means no reading today.
+        let waistCm = Double(waistText).flatMap { $0 > 0 ? $0 : nil }
         var routineDayId: UUID?
         var workoutChoiceLabel: String?
         var isRest = false
@@ -279,11 +298,16 @@ struct DailyCheckinSheet: View {
             yesterdayOffPlanNotes: yesterdayOffPlan ? yesterdayOffPlanNotes : nil,
             yesterdayHungerLevel: yesterdayHungerLevel,
             yesterdayStatus: yesterdayStatusTouched ? (yesterdayStatus?.rawValue ?? "normal") : nil,
-            sleepMinutes: sleepMinutes
+            sleepMinutes: sleepMinutes,
+            waistCm: waistCm
         )
 
         do {
-            try await DailyCheckinSubmitter.submit(checkin)
+            guard let ownerId = SupabaseService.shared.session?.user.id else {
+                errorMessage = OfflineQueueError.signInRequired.localizedDescription
+                return
+            }
+            try await DailyCheckinSubmitter.submit(checkin, ownerId: ownerId)
         } catch {
             // No connection: keep it on the phone and send it when back
             // online - the check-in counts as done either way.
@@ -291,7 +315,12 @@ struct DailyCheckinSheet: View {
                 errorMessage = error.localizedDescription
                 return
             }
-            OfflineOutbox.shared.enqueue(.dailyCheckin(checkin))
+            do {
+                try OfflineOutbox.shared.enqueue(.dailyCheckin(checkin))
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
         }
 
         CheckinAvailabilityService.shared.checkinCompleted(.daily)

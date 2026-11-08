@@ -2,6 +2,11 @@ import Foundation
 import HealthKit
 @preconcurrency import WorkoutKit
 
+// The SDK's authorization state is a value-only Int-backed enum, but its
+// declaration doesn't currently advertise Sendable. It crosses into this
+// main-actor service only as a value.
+extension WorkoutScheduler.AuthorizationState: @retroactive @unchecked Sendable {}
+
 /// Converts scheduled runs in the iPhone plan into workouts shown in the
 /// system Workout app on Apple Watch. The source plan remains the app's
 /// existing planned-runs data; no workout or route data is uploaded here.

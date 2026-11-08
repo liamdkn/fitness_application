@@ -99,7 +99,7 @@ struct RewardUnlockedView: View {
 struct ConfettiView: View {
     private struct Piece {
         let x: Double, speed: Double, sway: Double, phase: Double, spin: Double, size: Double, color: Int, delay: Double
-        init(_ i: Int) {
+        nonisolated init(_ i: Int) {
             // Deterministic scatter, so no random source is needed.
             func unit(_ n: Int, _ k: Double) -> Double { abs(sin(Double(n) * k)).truncatingRemainder(dividingBy: 1) }
             x = unit(i, 12.9898); speed = 120 + unit(i, 78.233) * 160; sway = 1 + unit(i, 37.719) * 3

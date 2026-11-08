@@ -91,15 +91,24 @@ struct MealSlotsSettingsView: View {
 
     private func delete(at offsets: IndexSet) async {
         let toDelete = offsets.map { slots[$0] }
-        slots.remove(atOffsets: offsets)
         for slot in toDelete {
-            try? await repository.delete(id: slot.id)
+            do {
+                try await repository.delete(id: slot.id)
+                slots.removeAll { $0.id == slot.id }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
     private func move(from source: IndexSet, to destination: Int) async {
         slots.move(fromOffsets: source, toOffset: destination)
         let orderedIds = slots.map(\.id)
-        try? await repository.reorder(orderedIds: orderedIds)
+        do {
+            try await repository.reorder(orderedIds: orderedIds)
+        } catch {
+            errorMessage = error.localizedDescription
+            await load()
+        }
     }
 }

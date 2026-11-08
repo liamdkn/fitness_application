@@ -185,13 +185,14 @@ struct SupplementRepository {
             try await upsertLog(log)
         } catch {
             guard OfflineError.isConnectivity(error) else { throw error }
-            OfflineOutbox.shared.enqueue(.addSupplementLog(log))
+            try OfflineOutbox.shared.enqueue(.addSupplementLog(log))
         }
         return log
     }
 
-    func upsertLog(_ log: SupplementLog) async throws {
-        let userId = try await client.auth.session.user.id
+    func upsertLog(_ log: SupplementLog, ownerId: UUID? = nil) async throws {
+        let userId: UUID
+        if let ownerId { userId = ownerId } else { userId = try await client.auth.session.user.id }
         try await client
             .from("supplement_logs")
             .upsert(LogWrite(
@@ -208,7 +209,7 @@ struct SupplementRepository {
             try await deleteLogOnServer(id: id)
         } catch {
             guard OfflineError.isConnectivity(error) else { throw error }
-            OfflineOutbox.shared.enqueue(.deleteSupplementLog(id))
+            try OfflineOutbox.shared.enqueue(.deleteSupplementLog(id))
         }
     }
 

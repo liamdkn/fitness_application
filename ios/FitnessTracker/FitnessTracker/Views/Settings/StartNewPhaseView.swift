@@ -82,7 +82,7 @@ struct StartNewPhaseView: View {
                         Section {
                             MeasurementsPhotosCaptureView(
                                 onSaveMeasurement: { waist, left, right in
-                                    _ = try? await measurementRepository.log(
+                                    _ = try await measurementRepository.log(
                                         waistCm: waist,
                                         leftBicepCm: left,
                                         rightBicepCm: right,
@@ -91,7 +91,7 @@ struct StartNewPhaseView: View {
                                     )
                                 },
                                 onSavePhoto: { data in
-                                    _ = try? await photoRepository.upload(imageData: data, takenAt: Date(), goalId: createdGoal.id)
+                                    _ = try await photoRepository.upload(imageData: data, takenAt: Date(), goalId: createdGoal.id)
                                 }
                             )
                         }

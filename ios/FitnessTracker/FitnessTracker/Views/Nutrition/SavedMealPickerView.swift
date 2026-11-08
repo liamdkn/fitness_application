@@ -177,10 +177,13 @@ struct SavedMealPickerView: View {
     }
 
     private func delete(_ toDelete: [SavedMeal]) async {
-        let ids = Set(toDelete.map(\.id))
-        savedMeals.removeAll { ids.contains($0.id) }
         for savedMeal in toDelete {
-            try? await repository.delete(id: savedMeal.id)
+            do {
+                try await repository.delete(id: savedMeal.id)
+                savedMeals.removeAll { $0.id == savedMeal.id }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

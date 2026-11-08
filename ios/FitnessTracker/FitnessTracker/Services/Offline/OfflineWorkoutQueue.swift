@@ -1,3 +1,4 @@
+import Auth
 import Foundation
 import SwiftData
 
@@ -84,8 +85,9 @@ final class OfflineWorkoutQueue {
     // MARK: - Active workout
 
     func startWorkout(routineDayId: UUID?, gymId: UUID? = nil) async throws -> Workout {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
         let now = Date()
-        let local = QueuedWorkout(id: UUID(), routineDayId: routineDayId, gymId: gymId, startedAt: now, performedAt: now, syncState: .pending)
+        let local = QueuedWorkout(id: UUID(), ownerId: ownerId, routineDayId: routineDayId, gymId: gymId, startedAt: now, performedAt: now, syncState: .pending)
         context.insert(local)
         try context.save()
         scheduleFlush()
@@ -111,12 +113,14 @@ final class OfflineWorkoutQueue {
     /// reinstall. A remote hit found that way is mirrored locally so every
     /// later lookup (and any edits) goes through the same offline-safe path.
     func fetchActive() async throws -> Workout? {
-        if let local = try fetchLocalActiveWorkout() {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
+        if let local = try fetchLocalActiveWorkout(ownerId: ownerId) {
             return local.asWorkout()
         }
         guard networkMonitor.isConnected, let remote = try await workoutRepository.fetchActive() else { return nil }
         let mirrored = QueuedWorkout(
             id: remote.id,
+            ownerId: ownerId,
             routineDayId: remote.routineDayId,
             gymId: remote.gymId,
             startedAt: remote.startedAt,
@@ -153,6 +157,7 @@ final class OfflineWorkoutQueue {
         let localWorkout = try ensureLocalWorkout(matching: workout)
         let set = QueuedWorkoutSet(
             id: UUID(),
+            ownerId: localWorkout.ownerId,
             exerciseId: exerciseId,
             setIndex: setIndex,
             reps: reps,
@@ -201,7 +206,7 @@ final class OfflineWorkoutQueue {
     @discardableResult
     func addWorkoutExercise(workout: Workout, exerciseId: UUID, position: Int) async throws -> WorkoutExercise {
         let localWorkout = try ensureLocalWorkout(matching: workout)
-        let entry = QueuedWorkoutExercise(id: UUID(), exerciseId: exerciseId, position: position, syncState: .pending)
+        let entry = QueuedWorkoutExercise(id: UUID(), ownerId: localWorkout.ownerId, exerciseId: exerciseId, position: position, syncState: .pending)
         entry.workout = localWorkout
         context.insert(entry)
         try context.save()
@@ -273,11 +278,22 @@ final class OfflineWorkoutQueue {
 
     /// Workouts, sets and exercise rows not yet confirmed on the server.
     var unsyncedCount: Int {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return 0 }
         let workouts = ((try? context.fetch(FetchDescriptor<QueuedWorkout>())) ?? [])
-            .filter { $0.syncState == .pending || $0.pendingDeletion }.count
+            .filter { $0.ownerId == ownerId && ($0.syncState == .pending || $0.pendingDeletion) }.count
         let sets = ((try? context.fetch(FetchDescriptor<QueuedWorkoutSet>())) ?? [])
-            .filter { $0.syncState == .pending || $0.pendingDeletion }.count
-        return workouts + sets
+            .filter { $0.ownerId == ownerId && ($0.syncState == .pending || $0.pendingDeletion) }.count
+        let exercises = ((try? context.fetch(FetchDescriptor<QueuedWorkoutExercise>())) ?? [])
+            .filter { $0.ownerId == ownerId && ($0.syncState == .pending || $0.pendingDeletion) }.count
+        return workouts + sets + exercises
+    }
+
+    /// Claim only legacy rows that predate owner stamps; new writes always carry an owner.
+    func adoptUnowned(by ownerId: UUID) {
+        for row in (try? context.fetch(FetchDescriptor<QueuedWorkout>())) ?? [] where row.ownerId == nil { row.ownerId = ownerId }
+        for row in (try? context.fetch(FetchDescriptor<QueuedWorkoutSet>())) ?? [] where row.ownerId == nil { row.ownerId = ownerId }
+        for row in (try? context.fetch(FetchDescriptor<QueuedWorkoutExercise>())) ?? [] where row.ownerId == nil { row.ownerId = ownerId }
+        try? context.save()
     }
 
     /// Removes everything held locally - at sign-out or when a different
@@ -305,17 +321,19 @@ final class OfflineWorkoutQueue {
         }
     }
 
-    private func fetchLocalActiveWorkout() throws -> QueuedWorkout? {
+    private func fetchLocalActiveWorkout(ownerId: UUID) throws -> QueuedWorkout? {
         let descriptor = FetchDescriptor<QueuedWorkout>(
             predicate: #Predicate { $0.endedAt == nil && !$0.pendingDeletion }
         )
-        return try context.fetch(descriptor).first
+        return try context.fetch(descriptor).first { $0.ownerId == ownerId }
     }
 
     private func fetchLocalWorkout(id: UUID) throws -> QueuedWorkout? {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return nil }
         var descriptor = FetchDescriptor<QueuedWorkout>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
+        guard let workout = try context.fetch(descriptor).first, workout.ownerId == ownerId else { return nil }
+        return workout
     }
 
     /// Recreates the local row from `workout` if it's ever gone missing
@@ -329,11 +347,15 @@ final class OfflineWorkoutQueue {
     /// re-marking an already-synced row `.pending` just costs one harmless
     /// extra upsert on the next flush.
     private func ensureLocalWorkout(matching workout: Workout) throws -> QueuedWorkout {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { throw OfflineQueueError.signInRequired }
         if let existing = try fetchLocalWorkout(id: workout.id) {
+            guard existing.ownerId == ownerId || existing.ownerId == nil else { throw OfflineQueueError.signInRequired }
+            existing.ownerId = ownerId
             return existing
         }
         let recreated = QueuedWorkout(
             id: workout.id,
+            ownerId: ownerId,
             routineDayId: workout.routineDayId,
             gymId: workout.gymId,
             startedAt: workout.startedAt,
@@ -349,9 +371,11 @@ final class OfflineWorkoutQueue {
     }
 
     private func fetchLocalSet(id: UUID) throws -> QueuedWorkoutSet? {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return nil }
         var descriptor = FetchDescriptor<QueuedWorkoutSet>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
+        guard let set = try context.fetch(descriptor).first, set.ownerId == ownerId else { return nil }
+        return set
     }
 
     // MARK: - Sync
@@ -378,11 +402,12 @@ final class OfflineWorkoutQueue {
 
         repeat {
             flushAgainRequested = false
-            guard networkMonitor.isConnected else { return }
+            guard networkMonitor.isConnected,
+                  let ownerId = SupabaseService.shared.session?.user.id else { return }
 
             guard let workouts = try? context.fetch(FetchDescriptor<QueuedWorkout>()) else { return }
-            for workout in workouts {
-                await flush(workout)
+            for workout in workouts where workout.ownerId == ownerId {
+                await flush(workout, ownerId: ownerId)
             }
             try? context.save()
         } while flushAgainRequested
@@ -391,7 +416,8 @@ final class OfflineWorkoutQueue {
         try? context.save()
     }
 
-    private func flush(_ workout: QueuedWorkout) async {
+    private func flush(_ workout: QueuedWorkout, ownerId: UUID) async {
+        guard workout.ownerId == ownerId, SupabaseService.shared.session?.user.id == ownerId else { return }
         if workout.pendingDeletion {
             do {
                 try await workoutRepository.deleteWorkout(workoutId: workout.id)
@@ -405,8 +431,10 @@ final class OfflineWorkoutQueue {
 
         if workout.syncState == .pending {
             do {
+                guard SupabaseService.shared.session?.user.id == ownerId else { return }
                 try await workoutRepository.upsertWorkout(
                     id: workout.id,
+                    ownerId: ownerId,
                     routineDayId: workout.routineDayId,
                     gymId: workout.gymId,
                     startedAt: workout.startedAt,
@@ -424,7 +452,8 @@ final class OfflineWorkoutQueue {
             }
         }
 
-        for set in workout.sets {
+        for set in workout.sets where set.ownerId == ownerId {
+            guard SupabaseService.shared.session?.user.id == ownerId else { return }
             if set.pendingDeletion {
                 do {
                     try await workoutRepository.deleteSet(setId: set.id)
@@ -436,6 +465,7 @@ final class OfflineWorkoutQueue {
                 do {
                     try await workoutRepository.upsertSet(
                         id: set.id,
+                        ownerId: ownerId,
                         workoutId: workout.id,
                         exerciseId: set.exerciseId,
                         setIndex: set.setIndex,
@@ -452,7 +482,8 @@ final class OfflineWorkoutQueue {
             }
         }
 
-        for entry in workout.exercises {
+        for entry in workout.exercises where entry.ownerId == ownerId {
+            guard SupabaseService.shared.session?.user.id == ownerId else { return }
             if entry.pendingDeletion {
                 do {
                     try await workoutRepository.deleteWorkoutExercise(id: entry.id)
@@ -464,6 +495,7 @@ final class OfflineWorkoutQueue {
                 do {
                     try await workoutRepository.upsertWorkoutExercise(
                         id: entry.id,
+                        ownerId: ownerId,
                         workoutId: workout.id,
                         exerciseId: entry.exerciseId,
                         position: entry.position
@@ -482,9 +514,10 @@ final class OfflineWorkoutQueue {
     /// needs to exist, so the local mirror is dropped to keep this store
     /// from growing forever.
     private func pruneOldSyncedWorkouts() {
-        guard let workouts = try? context.fetch(FetchDescriptor<QueuedWorkout>()) else { return }
+        guard let ownerId = SupabaseService.shared.session?.user.id,
+              let workouts = try? context.fetch(FetchDescriptor<QueuedWorkout>()) else { return }
         let cutoff = Date().addingTimeInterval(-pruneAfter)
-        for workout in workouts {
+        for workout in workouts where workout.ownerId == ownerId {
             guard workout.syncState == .synced,
                   let endedAt = workout.endedAt,
                   endedAt < cutoff,

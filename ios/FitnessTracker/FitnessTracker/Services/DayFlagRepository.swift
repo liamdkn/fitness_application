@@ -33,13 +33,14 @@ struct DayFlagRepository {
     }
 
     /// Marks a day, or clears it with `nil`.
-    func set(date: Date, status: DayStatus?) async throws {
+    func set(date: Date, status: DayStatus?, ownerId: UUID? = nil) async throws {
         let day = DateFormatting.isoDate(date)
         guard let status else {
             try await client.from("day_flags").delete().eq("date", value: day).execute()
             return
         }
-        let userId = try await client.auth.session.user.id
+        let userId: UUID
+        if let ownerId { userId = ownerId } else { userId = try await client.auth.session.user.id }
         try await client
             .from("day_flags")
             .upsert(NewFlag(user_id: userId, date: day, status: status.rawValue), onConflict: "user_id,date")

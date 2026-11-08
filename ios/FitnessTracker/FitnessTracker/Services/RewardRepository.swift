@@ -91,10 +91,12 @@ struct RewardRepository {
     }
 
     func delete(_ reward: Reward) async throws {
-        try await client.from("rewards").delete().eq("id", value: reward.id).execute()
+        // Remove the private object first. If storage rejects the request, keep
+        // the row so the user can retry instead of silently orphaning the file.
         if let path = reward.photoPath {
-            _ = try? await client.storage.from(bucket).remove(paths: [path])
+            _ = try await client.storage.from(bucket).remove(paths: [path])
         }
+        try await client.from("rewards").delete().eq("id", value: reward.id).execute()
     }
 
     func signedURL(path: String, expiresIn: Int = 3600) async throws -> URL {

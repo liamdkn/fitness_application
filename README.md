@@ -44,7 +44,7 @@ docs/                    Maintained product notes and design specifications
 
 - **Feature-oriented SwiftUI with repositories.** Views and view models use focused services for Supabase, HealthKit, Bluetooth and offline queues. Backend queries and destructive account operations stay behind repository boundaries.
 - **Pure calculation engines.** The interesting maths (`AdaptiveTDEEEngine`, `PhaseReportCalculator`, `CoachEngine`, `StreakEngine`, run feedback, calorie banking) are plain Swift taking arrays and returning values, with no Supabase or HealthKit inside. That keeps them testable; the tests replay realistic fixtures, including one shaped like 65 days of real history.
-- **Design decisions are written down.** [`docs/coach-plan.md`](docs/coach-plan.md) and [`docs/streaks-and-rewards-plan.md`](docs/streaks-and-rewards-plan.md) hold the specs the engines were built against, with the reasoning.
+- **Design decisions are written down.** [`docs/plans/coach-plan.md`](docs/plans/coach-plan.md) and [`docs/plans/streaks-and-rewards-plan.md`](docs/plans/streaks-and-rewards-plan.md) hold the specs the engines were built against, with the reasoning.
 - **Honest about its limits.** [`docs/V1_RELEASE_CHECKLIST.md`](docs/V1_RELEASE_CHECKLIST.md) lists what is verified and what is still open.
 
 ## Setup

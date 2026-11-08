@@ -32,3 +32,6 @@ scripts/.scale-venv/
 
 # Claude Code local settings
 .claude/
+
+# Personal specs and working notes (kept locally, never published)
+docs/private/

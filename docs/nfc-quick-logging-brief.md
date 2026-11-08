@@ -2,7 +2,7 @@
 
 ## Context
 
-Liam has a box of NFC coin tags and wants to place them around the house/places so logging is one tap instead of opening the app and navigating to a screen — starting with water, and "logging things" more generally.
+The owner has a box of NFC coin tags and wants to place them around the house/places so logging is one tap instead of opening the app and navigating to a screen — starting with water, and "logging things" more generally.
 
 ## What already exists (no new code needed for water)
 

@@ -72,4 +72,4 @@ Start at [`docs/README.md`](docs/README.md). Older briefs are kept in [`docs/arc
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

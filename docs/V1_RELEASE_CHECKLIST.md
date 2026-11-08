@@ -1,29 +1,30 @@
 # V1 release checklist
 
-This is a release gate, not a claim that V1 has passed. Source/migration inspection found a strong RLS baseline, but this review did not inspect the live Supabase project, run a security test, build the app, or test it on a device.
+This is a release gate, not a claim that V1 has passed. Updated 2026-11-02 after source/migration review, Debug Simulator and unsigned generic iOS Release builds, and a first-run screen visual check in the iPhone 17 simulator. No live Supabase audit, automated test suite, signed archive, or physical-device smoke test was run.
 
 ## Must close before release
 
 ### Repository and secrets
 
 - [ ] Confirm `README.md` and the docs index are the canonical setup path.
-- [ ] Add an ignore rule for `supabase/.env.save` and other environment backups. That file was one byte during review; do not commit future copies containing credentials.
+- [x] Ignore `supabase/.env.save` and other environment backups (`.env.*`, `*.env.save`). Still inspect repository history and rotate any credential that was ever exposed.
 - [ ] Check repository history and rotate any service-role or other secret that was ever exposed. The iOS app must contain only the public anon/publishable key.
-- [ ] Keep a clean, reviewable release diff. The current working tree has uncommitted code changes and a new database migration; review and commit them deliberately.
+- [ ] Keep a clean, reviewable release diff. The current working tree has uncommitted code and documentation changes; review and commit them deliberately before cutting a release.
 
 ### Database and access control
 
-- [ ] Apply migrations using a repeatable, documented process; prove both a blank-database install and an upgrade from a representative existing database. Back up and practice restore first.
-- [ ] Review the current untracked migration `0070_harden_inputs_and_storage.sql` before applying it. It scopes shared Open Food Facts and custom-food inserts to authenticated users, adds numeric/string bounds, and limits progress-photo uploads to 10 MB and listed image MIME types. Confirm constraints fit real app data and apply successfully.
+- [ ] Use the tracked migration runner (`scripts/migrate.js`) for deployment. Prove both a blank-database install and an upgrade from a representative existing database. Back up and practice restore first.
+- [ ] Review and verify migrations 0070 and 0075 against production data and policies. Confirm bounds fit real app data, account export/deletion covers every table and object, and the deployment applied successfully.
 - [ ] Compare deployed schema/policies with repository migrations. Static extraction found RLS enabled on all 43 application tables. The two aggregate views use `security_invoker = true`; the weekly summary function uses `security invoker`.
 - [ ] Test two accounts against every private table, child relationship, aggregate view/function, and Storage operation (select/insert/update/delete). Check grants, Auth settings, rate limits, and backup retention.
 - [ ] Verify route ownership, photo ownership, signed URL expiry, upload content checks, and cleanup when a record/account is removed.
 
 ### Local data and account lifecycle
 
-- [ ] Review the current uncommitted `LocalData`/offline-cache changes. They introduce account claiming, cache/queue clearing, and an unsynced-change warning at sign-out; prove that account A's cache or pending writes never appear or replay under account B, including offline launch and token-refresh paths.
-- [ ] Decide and implement account recovery, export, deletion, retention, and support expectations before external users. The inspected sign-in UI did not show a complete account lifecycle.
-- [ ] Verify file protection for persisted workouts, meals, check-ins, weight, preferences, widget snapshots, and reminders.
+- [x] Clear local caches and queues on sign-out/account switch; meal, workout, water, supplement, and check-in queued writes now carry an owner and are sent with explicit owner IDs. A generic iOS Simulator build passed. Still prove A→B isolation and in-flight replay behavior on device and with two real test accounts.
+- [x] Account export and deletion entry points exist in Settings and migrations 0075. Still verify completeness, Auth deletion behavior, storage cleanup, and backup retention against the deployed project.
+- [ ] Add public account creation and password recovery (or document an intentional invite-only distribution and provide a working account-provisioning/support path). Current sign-in UI only signs in.
+- [ ] Verify file protection for persisted workouts, meals, check-ins, weight, preferences, widget snapshots, and reminders. Offline SwiftData stores and the outbox now request iOS file protection; verify on device.
 - [ ] Test queue idempotency after partial success, duplicate replay, sign-out with pending changes, corrupt local stores, and bounded retries.
 
 ### Progress photos: explicit ship gate
@@ -35,13 +36,15 @@ This is a release gate, not a claim that V1 has passed. Source/migration inspect
 
 ### Product behavior and release validation
 
-- [ ] Complete a clean Release build, signing, supported iOS version review, device smoke test, and rollback-ready tag.
-- [ ] Reconcile the app/widget deployment-target settings and state the minimum supported iOS release in the setup docs.
+- [ ] Sign and archive the Release build, review the supported iOS version, smoke-test on physical devices, and create a rollback-ready tag. Unsigned generic iOS Release and Simulator builds both compile.
+- [x] Add the missing 1024×1024 App Store icon using the new forest-green “1%” gym + nutrition direction. Finalize dark/tinted icon variants if desired during App Store visual review.
+- [x] Align the widget deployment target with the app at iOS 26.0. State the minimum supported iOS release in the setup docs before publishing.
 - [ ] Smoke-test sign-in, logging/edit/delete for training and nutrition, HealthKit granted/denied, photo upload/view, notifications, widget/Live Activity, offline write/reconnect, and date/time-zone boundaries.
 - [ ] Verify input bounds in both client and database for calories, macros, quantities, weight, duration, and route data.
 - [ ] Verify missing logging days are shown as unknown with explicit coverage, and suppress/qualify adherence and TDEE claims when coverage is too sparse. Do not infer or silently insert calories for absent days.
 - [ ] Replace data-dependent force unwrap/crash paths and make missing configuration/local-store failures actionable.
-- [ ] Publish privacy and known-limitations language: tracking/calculations are not medical advice; HealthKit is optional; catalog nutrition values may be incomplete.
+- [ ] Publish a complete public privacy policy and add its URL in App Store Connect. An in-app “Privacy & Data Use” summary is now available in Settings, and app/widget privacy manifests declare UserDefaults access; this does not replace the public policy URL or completed App Privacy answers.
+- [ ] Review privacy language and App Store privacy answers for account data, HealthKit, routes, progress photos, barcode lookups, local storage, and retention. The app currently uploads progress photos to private Supabase storage, which conflicts with the explicit photo ship gate above.
 - [ ] Add focused automated coverage for calculations, migration upgrades, RLS isolation, offline queue/account behavior, and nutrition-history semantics. Avoid broad refactors until these invariants are protected.
 
 ## Findings and current confidence
@@ -49,9 +52,9 @@ This is a release gate, not a claim that V1 has passed. Source/migration inspect
 | Area | What source inspection found | What remains unproven |
 |---|---|---|
 | RLS | All 43 extracted application tables enable RLS; most user rows use `auth.uid()` policies. Two views and the weekly RPC explicitly use invoker security. | Deployed parity, grants, policy edge cases, and real cross-user isolation. |
-| Public catalog | An older policy allowed unauthenticated OFF food inserts. New untracked migration 0070 restricts both OFF and custom insert policies to `authenticated`. | Migration review/application, validation/deduplication abuse resistance. |
-| Storage | Progress-photo bucket is private; object paths begin with user UUID; signed URLs are used. Migration 0070 adds limits. | Deployed bucket settings, ownership tests, route/photo retention and deletion. |
-| Local data | New uncommitted code introduces account ownership/cleanup and a sign-out warning. | Build/runtime behavior and all offline/account switching cases. |
+| Public catalog | An older policy allowed unauthenticated OFF food inserts. Migration 0070 in the repository restricts OFF and custom inserts to `authenticated`. | Migration review/application, validation/deduplication abuse resistance. |
+| Storage | Progress-photo bucket is private; object paths begin with user UUID; signed URLs are used. Migration 0070 adds limits. | Deployed bucket settings, ownership tests, route/photo retention and deletion. Cloud progress-photo uploads still violate the explicit V1 ship gate. |
+| Local data | Sign-out wipes local account data; queued writes are owner-stamped and explicit-owner upserts are used. Generic simulator build succeeds. | Two-account isolation, offline launch, cancellation/in-flight flush, and file-protection behavior on device. |
 | Credentials | App reads project URL and anon key from build configuration; no service-role key found in inspected source. | Git-history review and deployed secret rotation status. |
 
 ## Release decision

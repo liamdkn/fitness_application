@@ -17,10 +17,11 @@ struct LaunchView: View {
     var body: some View {
         ZStack {
             AppBackground()
-            VStack(spacing: 30) {
+            VStack(spacing: 18) {
                 mark
-                Text("Fitness Tracker")
-                    .font(.title2.weight(.semibold))
+                Text("GYM  ·  NUTRITION")
+                    .font(.caption.weight(.semibold))
+                    .tracking(2)
                     .foregroundStyle(.primary)
             }
             .opacity(appeared || reduceMotion ? 1 : 0)
@@ -52,10 +53,9 @@ struct LaunchView: View {
                 }
             }
 
-            Image(systemName: "figure.strengthtraining.traditional")
-                .font(.system(size: 54, weight: .semibold))
-                .foregroundStyle(.white)
-                .symbolEffect(.bounce, options: .repeat(.periodic(delay: 0.5)), isActive: !reduceMotion)
+            Text("1%")
+                .font(.system(size: 38, weight: .black, design: .rounded))
+                .foregroundStyle(AppColor.accent)
                 .frame(width: markSize, height: markSize)
                 .glassEffect(.regular, in: Circle())
                 .scaleEffect(appeared || reduceMotion ? 1 : 0.88)

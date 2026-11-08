@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The app's screen background: the `AppColor.backgroundTop` to
-/// `backgroundBottom` gradient with a soft blue glow that slowly swells and
+/// `backgroundBottom` gradient with a soft green glow that slowly swells and
 /// fades, like breathing. It holds still when Reduce Motion is on.
 struct AppBackground: View {
     /// Seconds for one full breath in and out.

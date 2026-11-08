@@ -25,7 +25,7 @@ struct AppButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
 
     private var tint: Color {
-        switch kind {
+        return switch kind {
         case .destructive: AppColor.danger
         case .accent: AppColor.accent
         default: AppColor.button
@@ -34,7 +34,8 @@ struct AppButtonStyle: ButtonStyle {
     private var radius: CGFloat { size == .large ? Self.largeCornerRadius : Self.compactCornerRadius }
 
     private var foreground: Color {
-        switch kind {
+        if !isEnabled { return .primary }
+        return switch kind {
         case .primary, .accent: .white
         case .secondary: .primary
         case .destructive: AppColor.danger
@@ -63,7 +64,7 @@ struct AppButtonStyle: ButtonStyle {
             .padding(.horizontal, size == .large ? 16 : 14)
             .padding(.vertical, size == .large ? 12 : 8)
             .glassEffect(glass, in: RoundedRectangle(cornerRadius: radius))
-            .opacity(isEnabled ? 1 : 0.5)
+            .opacity(isEnabled ? 1 : 0.68)
             .contentShape(RoundedRectangle(cornerRadius: radius))
             .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.6), trigger: configuration.isPressed) { _, pressed in pressed }
     }
@@ -73,7 +74,7 @@ extension ButtonStyle where Self == AppButtonStyle {
     static var appPrimary: AppButtonStyle { AppButtonStyle(kind: .primary, size: .large) }
     static var appSecondary: AppButtonStyle { AppButtonStyle(kind: .secondary, size: .large) }
     static var appDestructive: AppButtonStyle { AppButtonStyle(kind: .destructive, size: .large) }
-    /// The one blue call-to-action on a screen (e.g. Start Workout).
+    /// The one brand-colored call-to-action on a screen (e.g. Start Workout).
     static var appAccent: AppButtonStyle { AppButtonStyle(kind: .accent, size: .large) }
     static var appPrimaryCompact: AppButtonStyle { AppButtonStyle(kind: .primary, size: .compact) }
     static var appSecondaryCompact: AppButtonStyle { AppButtonStyle(kind: .secondary, size: .compact) }

@@ -1,5 +1,7 @@
 # iOS / Xcode
 ios/build/
+ios/FitnessTracker/build/
+build/
 ios/DerivedData/
 *.xcuserstate
 *.xcuserdatad/

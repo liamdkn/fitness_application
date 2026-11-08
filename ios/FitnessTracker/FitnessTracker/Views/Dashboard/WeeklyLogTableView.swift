@@ -39,7 +39,7 @@ private struct DailyLogRow: Identifiable {
 
 /// A Goal -> Avg table across every tracked week, most recent first -
 /// Calories/Protein/Carbs/Fat/Steps plus average weight, one row per week.
-/// Same shape as the ad-hoc query Liam had run by hand against the DB;
+/// Same shape as the ad-hoc query the owner had run by hand against the DB;
 /// this is that same table, living in the app. Reuses
 /// `WeeklyLogViewModel`'s existing pagination and goal-resolution rather
 /// than fetching anything new - just a different rendering of the same

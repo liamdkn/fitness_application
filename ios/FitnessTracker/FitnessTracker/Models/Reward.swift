@@ -28,7 +28,7 @@ enum RewardGoalKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// A prize Liam sets for himself: "I'll buy this when I hit that". Behaviour goals only - see
+/// A prize the user sets for themselves: "I'll buy this when I hit that". Behaviour goals only - see
 /// docs/streaks-and-rewards-plan.md for why there is no weight-based goal.
 struct Reward: Codable, Identifiable, Hashable {
     let id: UUID

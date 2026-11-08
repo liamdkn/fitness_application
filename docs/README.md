@@ -8,4 +8,13 @@ Fitness Tracker is a long-lived personal iOS training and health journal. These 
 - [V1 release checklist](V1_RELEASE_CHECKLIST.md) — what must be verified before calling V1 shipped.
 - [Code editor handoff](CODE_EDITOR_HANDOFF.md) — prioritized issues, proposed fixes, and a safe order of work.
 
+## Design specs
+
+Specs the newer features were built against, including the reasoning and acceptance tests.
+
+- [Coach](coach-plan.md) — day classification, learned weak spots, the daily coaching message.
+- [Streaks, stars and rewards](streaks-and-rewards-plan.md) — streak rules, freezes, the star chart, self-set rewards.
+- [Feedback loop](feedback-loop-plan.md) — wearable, scale, waist and food inputs, and how they combine.
+- [NFC quick logging](nfc-quick-logging-brief.md) — tapping a tag to start the next meal.
+
 The archive contains historical briefs and decisions. Treat it as context, not as a live backlog: some requests have since shipped, changed, or been superseded. The handoff identifies which items need a current-code check.

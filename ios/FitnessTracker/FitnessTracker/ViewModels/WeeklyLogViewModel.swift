@@ -88,7 +88,7 @@ final class WeeklyLogViewModel: ObservableObject {
     }
 
     /// Called when the last-loaded row scrolls into view - fetches the
-    /// next older page and appends it, rather than fetching Liam's entire
+    /// next older page and appends it, rather than fetching the user's entire
     /// tracking history up front.
     func loadMoreIfNeeded(currentEntry: WeeklyLogEntry) async {
         guard !isLoadingMore, !reachedEnd, entries.last?.id == currentEntry.id else { return }

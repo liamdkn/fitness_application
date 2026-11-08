@@ -15,7 +15,7 @@ The iOS app includes:
 - **Progress and wellbeing:** goals/phases, weight and body measurements, progress photos, daily and weekly check-ins, adherence and weekly insights, hydration/caffeine, steps and sleep. Current photo uploads use Supabase Storage; the V1 release decision is to remove cloud photo uploads and either keep files on-device only or remove the photo feature.
 - **Integrations:** Supabase Auth/Postgres/Storage; selected, read-only Apple Health data; Open Food Facts lookup; selective offline caches and queued writes.
 
-This is an iOS app with a widget and Live Activity extension. The repository does not currently define a web/Android client, coach portal, or watchOS companion app. Check the code before relying on any feature name in older briefs.
+This is an iOS app with a widget and Live Activity extension and a watchOS companion for treadmill/run sessions. The repository does not currently define a web/Android client or coach portal. Check the code before relying on any feature name in older briefs.
 
 ## Main user journeys
 

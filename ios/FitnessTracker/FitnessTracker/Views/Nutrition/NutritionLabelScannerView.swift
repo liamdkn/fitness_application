@@ -97,7 +97,7 @@ private struct NutritionLabelScannerRepresentable: UIViewControllerRepresentable
 }
 
 /// Point the camera at a nutrition facts panel - fields fill in live as
-/// they're recognized (mirrors a credit-card scanner's UX per Liam's own
+/// they're recognized (mirrors a credit-card scanner's UX per the owner's own
 /// framing), then "Use These Values" hands off to `AddCustomFoodView`
 /// pre-filled for review before saving - the same accuracy safety net a
 /// manual add already has, since an OCR mis-read (a smudged "8" read as a

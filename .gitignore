@@ -1,37 +1,23 @@
-# iOS / Xcode
-ios/build/
-ios/FitnessTracker/build/
-build/
-ios/DerivedData/
-*.xcuserstate
-*.xcuserdatad/
-ios/**/xcuserdata/
-ios/FitnessTracker/Config.xcconfig
-
-# Supabase
-supabase/.branches/
-supabase/.temp/
-
-# Secrets
-.env
-*.env
-!.env.example
-
-# macOS
+# macOS / Xcode
 .DS_Store
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
 
-# Node (scripts/)
-node_modules/
-
-# Saved/backup copies of env files
+# Local secrets (copy Config.xcconfig.example to Config.xcconfig)
+ios/FitnessTracker/Config.xcconfig
+.env
 .env.*
-*.env.save
-supabase/.env.save
 !.env.example
-scripts/.scale-venv/
+*.env.save
 
-# Claude Code local settings
+# Tooling
+node_modules/
+scripts/.scale-venv/
+supabase/.temp/
+supabase/.branches/
 .claude/
 
-# Personal specs and working notes (kept locally, never published)
+# Local-only notes
 docs/private/

@@ -56,8 +56,6 @@ The app separates SwiftUI views, view models, data/domain models, repositories, 
 - Do not ship user progress-photo uploads to Supabase. V1 photos must be local-only with strong file protection and no backup copy, or the photo feature must be removed.
 - Keep setup and release reproducible; do not rely on undocumented production dashboard changes.
 
-See [V1 release checklist](../V1_RELEASE_CHECKLIST.md) for current release gates.
-
 ## V2: opt-in LLM assistance
 
 The desired direction is an in-app assistant that can explain the user's own progress and help navigate the app. Ship it in stages, starting read-only. A strong first release is an opt-in weekly reflection grounded in a user-selected date range, with source dates/metrics, missing-data caveats, and a clear distinction between recorded facts and generated interpretation.

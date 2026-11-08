@@ -40,7 +40,7 @@ flowchart LR
   App --> Widget[Widget and Live Activity]
 ```
 
-The client talks directly to Supabase using the public anon/publishable key and the signed-in user's session. RLS is the backend ownership boundary. Migrations describe 43 application tables across training, nutrition, health/progress, and preferences. Views/RPCs provide some aggregates. Progress photos use a private Storage bucket and expiring signed URLs. HealthKit is read-only in the inspected implementation.
+The client talks directly to Supabase using the public anon/publishable key and the signed-in user's session. RLS is the backend ownership boundary. Migrations describe 50 application tables across training, nutrition, health/progress, and preferences, with RLS enabled on all 50 in the tracked migration chain. Views/RPCs provide some aggregates. Progress photos use a private Storage bucket and expiring signed URLs. HealthKit is read-only in the inspected implementation.
 
 The app separates SwiftUI views, view models, data/domain models, repositories, and service/calculation code. Offline behavior is selective, not a full local database. Queued writes and caches must be treated as sensitive user data and remain bound to the account that created them.
 
@@ -80,8 +80,8 @@ The desired direction is an in-app assistant that can explain the user's own pro
 3. **HealthKit-informed estimates:** evaluate longer recency-weighted TDEE windows and optional confidence-weighted Watch energy. First measure data completeness and disagreement; never present the resulting estimate without explaining sources and uncertainty.
 4. **Nutrition planning:** build deterministic macro-budget/menu suggestions from the in-house food catalog. Exact numeric matching is a solver/search problem; an LLM may explain options but should not replace deterministic calculation.
 5. **Apple Watch:** consider importing workouts and writing app workouts to HealthKit before deciding whether a separate watchOS training experience is worth its support cost.
-6. **Other ideas in the archived briefs:** richer check-in/photo history, further HealthKit signals, exercise visualizations, and coaching-style reflection. Revalidate user value and privacy cost before scheduling.
+6. **Other ideas to re-evaluate:** richer check-in/photo history, further HealthKit signals, exercise visualizations, and coaching-style reflection. Revalidate user value and privacy cost before scheduling.
 
 ## Superseded approaches
 
-Automated MyFitnessPal diary import was investigated and abandoned; the current direction is in-app nutrition logging. The archive retains the investigation and design evolution, including superseded one-off data-cleanup proposals. Do not execute an archived SQL proposal without checking the current data and obtaining explicit product intent.
+Automated third-party diary import was investigated and abandoned; the current direction is in-app nutrition logging. Historical one-off data-cleanup proposals are intentionally not part of the maintained documentation.

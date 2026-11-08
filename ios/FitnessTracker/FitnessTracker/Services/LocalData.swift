@@ -19,9 +19,10 @@ enum LocalData {
         let stored = UserDefaults.standard.string(forKey: ownerKey)
         if let stored, stored != userId.uuidString {
             wipe()
-        } else if stored == nil {
-            OfflineOutbox.shared.adoptUnowned(by: userId)
         }
+        OfflineOutbox.shared.adoptUnowned(by: userId)
+        OfflineMealQueue.shared.adoptUnowned(by: userId)
+        OfflineWorkoutQueue.shared.adoptUnowned(by: userId)
         UserDefaults.standard.set(userId.uuidString, forKey: ownerKey)
     }
 
@@ -44,10 +45,15 @@ enum LocalData {
         OfflineOutbox.shared.wipeAll()
         OfflineMealQueue.shared.wipeAll()
         OfflineWorkoutQueue.shared.wipeAll()
+        PendingVoiceFoodStore.clear()
+        ScaleWeightCaptureStore.clear()
         BedtimeResolver.invalidate()
         PendingWater.clear()
         WatchBridge.shared.clear()
         UserDefaults.standard.removeObject(forKey: "milk-allowance-applied-date")
+        UserDefaults.standard.removeObject(forKey: "coach.confirmedStarDates")
+        UserDefaults.standard.removeObject(forKey: StreakNudgeService.enabledKey)
+        UserDefaults.standard.removeObject(forKey: SupplementReminderService.liveActivityKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
         WidgetSnapshot.clear()
         WidgetCenter.shared.reloadAllTimelines()

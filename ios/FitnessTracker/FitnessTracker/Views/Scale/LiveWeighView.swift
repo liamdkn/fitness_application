@@ -1,3 +1,4 @@
+import Auth
 import SwiftUI
 
 /// Weigh food into a meal with the Bluetooth scale, two ways:
@@ -31,8 +32,10 @@ struct LiveWeighView: View {
     }
 
     let mealSlotName: String
+    let mealSlotId: UUID
+    let date: Date
     /// Logs a food at a number of servings (amount / serving size).
-    let onLog: (Food, Double) -> Void
+    let onLog: (Food, Double) async -> Bool
 
     @Environment(\.dismiss) private var dismiss
     @State private var scale = BluetoothScale.shared
@@ -54,6 +57,10 @@ struct LiveWeighView: View {
     /// Goal weigh: the ingredients.
     @State private var plan: [PlannedItem] = []
     @State private var showingSavedMeals = false
+    @State private var showingScalePrompt = false
+    @State private var queueForLater = false
+    @State private var queuedCaptures: [ScaleWeightCapture] = []
+    @State private var assigningCapture: ScaleWeightCapture?
     @State private var targetFood: Food?
     @State private var askingTarget = false
     @State private var targetText = ""
@@ -127,6 +134,28 @@ struct LiveWeighView: View {
 
                 if mode == .open { openSection } else { goalSection }
 
+                if !queuedCaptures.isEmpty {
+                    Section("Weights to assign · \(queuedCaptures.count)") {
+                        ForEach(queuedCaptures) { capture in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(AmountLabel.trimmed(capture.grams)) g")
+                                        .font(.headline.monospacedDigit())
+                                    Text(capture.capturedAt, style: .time)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button("Assign food") { assigningCapture = capture }
+                                    .buttonStyle(.appSecondaryCompact)
+                            }
+                            .swipeActions {
+                                Button("Discard", role: .destructive) { removeCapture(capture) }
+                            }
+                        }
+                    }
+                    .listRowBackground(AppRowBackground())
+                }
+
                 if let message {
                     Section { Text(message).font(.subheadline) }
                         .listRowBackground(AppRowBackground())
@@ -177,6 +206,28 @@ struct LiveWeighView: View {
                     Task { await loadPlan(items) }
                 }
             }
+            .sheet(isPresented: $showingScalePrompt) {
+                ScaleConnectionPromptView()
+            }
+            .sheet(item: $assigningCapture) { capture in
+                FoodPickerView(
+                    mealSlotName: mealSlotName,
+                    onLog: { food, quantity in
+                        Task { @MainActor in
+                            if await onLog(food, quantity) {
+                                removeCapture(capture)
+                                assigningCapture = nil
+                            } else {
+                                message = "Couldn't save this ingredient. Its captured weight is still queued."
+                                assigningCapture = nil
+                            }
+                        }
+                    },
+                    initialAmount: capture.grams,
+                    initialAmountUnit: "g",
+                    initialScaleUnit: capture.scaleUnit
+                )
+            }
             .alert("Target amount", isPresented: $askingTarget, presenting: targetFood) { food in
                 TextField(food.servingUnit, text: $targetText)
                     .keyboardType(.decimalPad)
@@ -202,10 +253,15 @@ struct LiveWeighView: View {
             }
             .onAppear {
                 scale.reconnectKnown()
+                loadQueuedCaptures()
                 scale.onSample = { grams, _ in liveGrams = grams }
                 scale.onTare = { massBefore in scaleTared(massBefore: massBefore) }
                 if let grams = scale.live ?? scale.grams { liveGrams = grams }
                 restart()
+                Task {
+                    try? await Task.sleep(nanoseconds: 800_000_000)
+                    if scale.connectedName == nil { showingScalePrompt = true }
+                }
             }
             .onDisappear {
                 scale.onSample = nil
@@ -259,6 +315,7 @@ struct LiveWeighView: View {
                     Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
             }
+            Toggle("Queue weights for later", isOn: $queueForLater)
             Toggle("Scooping from a container", isOn: $scoopMode)
             if ready {
                 let sofar = massSinceBaseline(from: currentMass)
@@ -282,7 +339,9 @@ struct LiveWeighView: View {
         } header: {
             Text("Adding now")
         } footer: {
-            Text(scoopMode
+            Text(queueForLater
+                 ? "Press TARE after each ingredient. The app saves each weight so you can assign foods from the list afterward."
+                 : scoopMode
                  ? "Leave the container on the scale and spoon some out. Hold the button to log what came out."
                  : currentFood == nil
                      ? "Pick the ingredient, pour, then press TARE on the scale to log it."
@@ -417,6 +476,10 @@ struct LiveWeighView: View {
             message = "Zeroed - nothing new to log."
             return
         }
+        if mode == .open && (queueForLater || currentFood == nil) {
+            enqueue(mass)
+            return
+        }
         if mode == .goal {
             guard let item = goalItem else { message = "Zeroed."; return }
             capture(item, mass: mass)
@@ -433,8 +496,36 @@ struct LiveWeighView: View {
     private func captureOpenByHand() {
         let mass = massSinceBaseline(from: currentMass)
         guard (mass * 10).rounded() > 0 else { message = "Nothing to log yet."; return }
+        if queueForLater || currentFood == nil {
+            enqueue(mass)
+            baseline = currentMass
+            return
+        }
         claim(mass, verb: scoopMode ? "scooped out" : "added")
         baseline = currentMass
+    }
+
+    private func enqueue(_ grams: Double) {
+        guard let ownerId = SupabaseService.shared.session?.user.id else {
+            message = "Sign in to save weights for later."
+            return
+        }
+        let capture = ScaleWeightCapture(ownerId: ownerId, mealSlotId: mealSlotId, grams: grams,
+                                         scaleUnit: scale.unit, date: date)
+        ScaleWeightCaptureStore.append(capture)
+        queuedCaptures.append(capture)
+        pendingGrams = nil
+        message = "Captured \(AmountLabel.trimmed(grams)) g. Add the next ingredient, or assign this one below."
+    }
+
+    private func loadQueuedCaptures() {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return }
+        queuedCaptures = ScaleWeightCaptureStore.fetch(ownerId: ownerId, mealSlotId: mealSlotId, date: date)
+    }
+
+    private func removeCapture(_ capture: ScaleWeightCapture) {
+        ScaleWeightCaptureStore.remove(capture.id)
+        queuedCaptures.removeAll { $0.id == capture.id }
     }
 
     /// The press-and-hold in goal weigh: capture whatever has been added, even nothing.
@@ -518,7 +609,7 @@ struct LiveWeighView: View {
             return
         }
         let amount = (converted * 10).rounded() / 10
-        onLog(food, converted / food.servingSize)
+        Task { @MainActor in _ = await onLog(food, converted / food.servingSize) }
         added.append((food, amount))
         message = "\(AmountLabel.trimmed(amount)) \(food.servingUnit) \(food.name) added"
         // Ready for the next ingredient.

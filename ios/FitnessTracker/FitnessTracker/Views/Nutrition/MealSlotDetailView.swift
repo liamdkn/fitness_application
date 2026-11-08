@@ -171,8 +171,8 @@ struct MealSlotDetailView: View {
             )
         }
         .sheet(isPresented: $weighing) {
-            LiveWeighView(mealSlotName: slot.name) { food, servings in
-                Task { await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date) }
+            LiveWeighView(mealSlotName: slot.name, mealSlotId: slot.id, date: date) { food, servings in
+                await viewModel.logFood(food, quantity: servings, mealSlotId: slot.id, date: date)
             }
         }
         .sheet(isPresented: $copyingMeal) {
@@ -504,8 +504,6 @@ private struct EditMealEntryQuantityView: View {
     /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
     @State private var skipConversion = false
     @State private var scale = BluetoothScale.shared
-    /// "Use the scale" was tapped and the amount not changed since.
-    @State private var usedScale = false
     @FocusState private var amountFocused: Bool
     @State private var ingredients = RecipeIngredientList()
     private let info: EditableFoodInfo?
@@ -568,15 +566,15 @@ private struct EditMealEntryQuantityView: View {
                         }
                         if let onScale = scaleAmount(info) {
                             Button {
-                                if inputMode != .amount {
-                                    skipConversion = true
-                                    inputMode = .amount
-                                }
-                                quantityText = Self.formattedQuantity(onScale)
-                                usedScale = true
+                                logScaleAmount(onScale, info: info)
                             } label: {
-                                Label("Use the scale: \(Self.formattedQuantity(onScale)) \(info.servingUnit)", systemImage: "scalemass")
+                                Label("Save \(Self.formattedQuantity(onScale)) \(info.servingUnit) and return", systemImage: "scalemass")
                             }
+                            .disabled(info.servingSize <= 0)
+                        }
+                    } footer: {
+                        if scaleAmount(info) != nil {
+                            Text("Tapping the scale button logs the live reading and returns to the meal.")
                         }
                     }
                     .listRowBackground(AppRowBackground())
@@ -640,7 +638,6 @@ private struct EditMealEntryQuantityView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Save") {
                         if let quantity {
-                            if usedScale { scale.tareScale() }
                             onConfirm(quantity)
                             if showsEatenTime { saveEatenTime() }
                             dismiss()
@@ -675,9 +672,19 @@ private struct EditMealEntryQuantityView: View {
     }
 
     private func scaleAmount(_ info: EditableFoodInfo) -> Double? {
-        guard let mass = scale.live, mass >= 1,
+        guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
               let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: info.servingUnit, scaleUnit: scale.unit) else { return nil }
         return (amount * 10).rounded() / 10
+    }
+
+    private func logScaleAmount(_ amount: Double, info: EditableFoodInfo) {
+        guard info.servingSize > 0 else { return }
+        let servings = amount / info.servingSize
+        guard servings.isFinite, servings > 0 else { return }
+        onConfirm(servings)
+        if showsEatenTime { saveEatenTime() }
+        scale.tareScale()
+        dismiss()
     }
 
     private func convertQuantityText(from oldMode: QuantityInputMode, to newMode: QuantityInputMode, servingSize: Double) {

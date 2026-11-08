@@ -42,6 +42,9 @@ struct SettingsView: View {
                     NavigationLink("Body Measurements") {
                         MeasurementsView()
                     }
+                    NavigationLink("Libre 1 Sensor Test") {
+                        LibreOneScanTestView()
+                    }
                 }
                 .listRowBackground(AppRowBackground())
 
@@ -138,6 +141,9 @@ struct SettingsView: View {
                 Section("Account") {
                     NavigationLink("Your Data") {
                         AccountDataView()
+                    }
+                    NavigationLink("Privacy & Data Use") {
+                        PrivacyAndDataView()
                     }
                     Button("Sign Out", role: .destructive) {
                         Task {

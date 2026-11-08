@@ -1,3 +1,4 @@
+import Auth
 import SwiftUI
 
 struct MainTabView: View {
@@ -5,6 +6,7 @@ struct MainTabView: View {
     @State private var leftAt: Date?
     @State private var router = MealTagRouter.shared
     @State private var coachRouter = CoachRouter.shared
+    @State private var showingVoiceFoodReview = false
 
     private enum Tab: Hashable { case dashboard, train, nutrition, settings }
     @State private var selectedTab = Tab.dashboard
@@ -35,7 +37,13 @@ struct MainTabView: View {
             coachRouter.pending = nil
         }
         .overlay(alignment: .top) { OfflineBanner() }
+        .sheet(isPresented: $showingVoiceFoodReview) {
+            if let ownerId = SupabaseService.shared.session?.user.id {
+                PendingVoiceFoodReviewView(ownerId: ownerId)
+            }
+        }
         .task {
+            refreshVoiceFoodReview()
             await WaterRepository().importWidgetWater()
             await WatchBridge.shared.retryPending()
             await OfflineOutbox.shared.flush()
@@ -62,6 +70,7 @@ struct MainTabView: View {
                 self.leftAt = nil
             }
             guard newPhase == .active else { return }
+            refreshVoiceFoodReview()
             Task {
                 await WaterRepository().importWidgetWater()
                 await WatchBridge.shared.retryPending()
@@ -75,6 +84,11 @@ struct MainTabView: View {
                 await SupplementReminderService.shared.refresh()
             }
         }
+    }
+
+    private func refreshVoiceFoodReview() {
+        guard let ownerId = SupabaseService.shared.session?.user.id else { return }
+        showingVoiceFoodReview = !PendingVoiceFoodStore.pending(for: ownerId).isEmpty
     }
 }
 

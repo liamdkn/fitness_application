@@ -16,9 +16,14 @@ struct FoodPickerView: View {
     /// Carbs still to eat before training (the Preworkout meal), so the
     /// quantity step can say how much of a food gets there.
     var carbsRemainingG: Double?
+    /// Optional query and amount used when resolving a Siri-captured item.
+    var initialSearchText: String? = nil
+    var initialAmount: Double? = nil
+    var initialAmountUnit: String? = nil
+    var initialScaleUnit: Int? = nil
 
     @Environment(\.dismiss) private var dismiss
-    @State private var searchText = ""
+    @State private var searchText: String
     @State private var results: [Food] = []
     /// Open Food Facts text-search hits for the current query, shown under
     /// the local results - nothing is stored until one is picked.
@@ -45,6 +50,20 @@ struct FoodPickerView: View {
     @State private var manualEntry: ManualBarcodeEntry?
     private let repository = FoodRepository()
     private let mealEntryRepository = MealEntryRepository()
+
+    init(mealSlotName: String, onLog: @escaping (Food, Double) -> Void, drinksOnly: Bool = false,
+         carbsRemainingG: Double? = nil, initialSearchText: String? = nil,
+         initialAmount: Double? = nil, initialAmountUnit: String? = nil, initialScaleUnit: Int? = nil) {
+        self.mealSlotName = mealSlotName
+        self.onLog = onLog
+        self.drinksOnly = drinksOnly
+        self.carbsRemainingG = carbsRemainingG
+        self.initialSearchText = initialSearchText
+        self.initialAmount = initialAmount
+        self.initialAmountUnit = initialAmountUnit
+        self.initialScaleUnit = initialScaleUnit
+        _searchText = State(initialValue: initialSearchText ?? "")
+    }
 
     var body: some View {
         NavigationStack {
@@ -136,7 +155,9 @@ struct FoodPickerView: View {
                 }
             }
             .sheet(item: $pendingFood) { food in
-                LogFoodQuantityView(food: food, mealSlotName: mealSlotName, carbsRemainingG: carbsRemainingG) { confirmedFood, quantity in
+                LogFoodQuantityView(food: food, mealSlotName: mealSlotName, carbsRemainingG: carbsRemainingG,
+                                    initialAmount: initialAmount, initialAmountUnit: initialAmountUnit,
+                                    initialScaleUnit: initialScaleUnit) { confirmedFood, quantity in
                     onLog(confirmedFood, quantity)
                     dismiss()
                 }
@@ -386,9 +407,20 @@ struct LogFoodQuantityView: View {
     /// Set when the mode is switched by filling from the scale, whose text is already in the new mode.
     @State private var skipConversion = false
 
-    init(food: Food, mealSlotName: String, carbsRemainingG: Double? = nil, onConfirm: @escaping (Food, Double) -> Void) {
+    init(food: Food, mealSlotName: String, carbsRemainingG: Double? = nil,
+         initialAmount: Double? = nil, initialAmountUnit: String? = nil, initialScaleUnit: Int? = nil,
+         onConfirm: @escaping (Food, Double) -> Void) {
         _food = State(initialValue: food)
-        _inputMode = State(initialValue: Self.startingMode(for: food))
+        let convertedAmount = initialAmount.flatMap { initialAmountUnit == "g"
+            ? ScaleDecoding.amount(forGrams: $0, foodUnit: food.servingUnit, scaleUnit: initialScaleUnit)
+            : $0
+        }
+        let unitMatches = convertedAmount != nil && ["g", "ml"].contains(food.servingUnit.lowercased())
+        let isServingCount = initialAmountUnit == "servings"
+        _inputMode = State(initialValue: unitMatches ? .amount : (isServingCount ? .servings : Self.startingMode(for: food)))
+        if let convertedAmount, unitMatches || isServingCount {
+            _quantityText = State(initialValue: Self.formatted(convertedAmount))
+        }
         self.mealSlotName = mealSlotName
         self.carbsRemainingG = carbsRemainingG
         self.onConfirm = onConfirm
@@ -400,7 +432,7 @@ struct LogFoodQuantityView: View {
     /// What's on the scale, in this food's unit (g or ml), when a scale is connected
     /// and holding something. `nil` for foods counted in anything else.
     private var scaleAmount: Double? {
-        guard let mass = scale.live, mass >= 1,
+        guard scale.connectedName != nil, let mass = scale.live, mass >= 1,
               let amount = ScaleDecoding.amount(forGrams: mass, foodUnit: food.servingUnit, scaleUnit: scale.unit) else { return nil }
         return (amount * 10).rounded() / 10
     }
@@ -408,6 +440,18 @@ struct LogFoodQuantityView: View {
     private var inputModeDefaultsKey: String { Self.modeKey(for: food) }
 
     private static func modeKey(for food: Food) -> String { "foodQuantityInputMode.\(food.id.uuidString)" }
+
+    private static func unit(_ input: String?, matches servingUnit: String) -> Bool {
+        guard let input else { return false }
+        let normalized = input.lowercased()
+        let foodUnit = servingUnit.lowercased()
+        return ((normalized == "grams" || normalized == "g") && foodUnit == "g")
+            || ((normalized == "millilitres" || normalized == "ml") && foodUnit == "ml")
+    }
+
+    private static func formatted(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(value)
+    }
 
     /// Grams (or ml) for anything weighed - unless this food was switched to servings on
     /// purpose before. Counted foods (an egg, a slice) start in servings.
@@ -486,9 +530,9 @@ struct LogFoodQuantityView: View {
                     }
                     if let onScale = scaleAmount {
                         Button {
-                            useScale()
+                            logScaleAmount(onScale)
                         } label: {
-                            Label("Use the scale: \(formattedQuantity(onScale)) \(food.servingUnit)", systemImage: "scalemass")
+                            Label("Log \(formattedQuantity(onScale)) \(food.servingUnit)", systemImage: "scalemass")
                         }
                     }
                 }
@@ -605,8 +649,8 @@ struct LogFoodQuantityView: View {
         quantityText = formattedQuantity(inputMode == .amount ? lastQuantity * food.servingSize : lastQuantity)
     }
 
-    /// Fills the amount from the scale and keeps following it until the field is edited.
-    /// The user still has to press Add.
+    /// Prefills the quantity editor with the current amount and follows the scale
+    /// until the user changes the field.
     private func useScale() {
         guard let amount = scaleAmount else { return }
         selectedSize = nil
@@ -618,6 +662,16 @@ struct LogFoodQuantityView: View {
         programmaticText = quantityText
         // A remembered weight doesn't move, so there's nothing to follow (or to tare afterwards).
         followingScale = scale.connectedName != nil
+    }
+
+    /// The dedicated scale action is a fast path: use the live amount,
+    /// log it as servings, tare, and return to the meal without another tap.
+    private func logScaleAmount(_ amount: Double) {
+        guard food.servingSize > 0 else { return }
+        let servings = amount / food.servingSize
+        guard servings.isFinite, servings > 0 else { return }
+        scale.tareScale()
+        onConfirm(food, servings)
     }
 
     private func convertQuantityText(from oldMode: QuantityInputMode, to newMode: QuantityInputMode) {

@@ -84,7 +84,7 @@ Requires Xcode 26, Node.js, and a free Supabase project.
 6. Run on a simulator or device. HealthKit data, Bluetooth and NFC need a real device.
 7. The app has no sign-up screen, so create a user under Authentication in the Supabase dashboard first. `node scripts/seed-test-data.js` fills a `test@test.com` account with sample history. It resets that account's data, so use it only on a development project.
 
-Run the tests with:
+Run the tests with any installed simulator in place of `iPhone 17e`:
 
 ```bash
 xcodebuild test -scheme FitnessTracker -only-testing:FitnessTrackerTests \

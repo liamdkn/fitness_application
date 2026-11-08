@@ -10,8 +10,9 @@ struct SettingsView: View {
     @State private var weeklyCheckinWeekday = 2
     @State private var cardioStepExclusionEnabled = false
     @State private var stepSource: StepSource = .merged
-    @State private var stepRemindersEnabled = true
+    @State private var stepRemindersEnabled = false
     @State private var stepReminderTime = Date()
+    @State private var dailyCheckinRemindersEnabled = false
     @State private var stepRemindersLoaded = false
     @State private var showingUnsentWarning = false
     @State private var unsentChanges = 0
@@ -21,35 +22,14 @@ struct SettingsView: View {
     var body: some View {
         AppNavigationStack {
             Form {
-                Section("Goals") {
+                Section("Plan") {
                     NavigationLink("My Goals") {
                         MyGoalsView()
                     }
-                }
-                .listRowBackground(AppRowBackground())
-
-                Section("Rewards") {
                     NavigationLink("Rewards and Trophy Shelf") {
                         RewardsView()
                     }
-                }
-                .listRowBackground(AppRowBackground())
-
-                Section("Health") {
-                    NavigationLink("Injuries") {
-                        InjuriesView()
-                    }
-                    NavigationLink("Body Measurements") {
-                        MeasurementsView()
-                    }
-                    NavigationLink("Libre 1 Sensor Test") {
-                        LibreOneScanTestView()
-                    }
-                }
-                .listRowBackground(AppRowBackground())
-
-                Section("Training") {
-                    NavigationLink("Edit Split") {
+                    NavigationLink("Edit Training Split") {
                         RoutineEditorView()
                     }
                     NavigationLink("Gyms") {
@@ -58,7 +38,21 @@ struct SettingsView: View {
                 }
                 .listRowBackground(AppRowBackground())
 
-                Section("Weekly Check-In") {
+                Section("Progress & health") {
+                    NavigationLink("Injuries") {
+                        InjuriesView()
+                    }
+                    NavigationLink("Body Measurements") {
+                        MeasurementsView()
+                    }
+                    healthStatusRow
+                    Button("Sync Apple Health") {
+                        Task { await healthSync.requestAuthorizationAndSync() }
+                    }
+                }
+                .listRowBackground(AppRowBackground())
+
+                Section("Check-ins") {
                     Picker("Check-In Day", selection: $weeklyCheckinWeekday) {
                         ForEach(1...7, id: \.self) { weekday in
                             Text(weekdayNames[weekday] ?? "").tag(weekday)
@@ -73,43 +67,40 @@ struct SettingsView: View {
                     NavigationLink("Check-In History") {
                         WeeklyCheckinHistoryView()
                     }
+                    Toggle("Morning weigh-in reminder", isOn: $dailyCheckinRemindersEnabled)
+                        .onChange(of: dailyCheckinRemindersEnabled) { _, enabled in
+                            guard stepRemindersLoaded else { return }
+                            Task { await saveDailyCheckinReminders(enabled) }
+                        }
                 }
                 .listRowBackground(AppRowBackground())
 
-                Section("Cardio Step Exclusion") {
-                    Toggle("Exclude Machine-Counted Cardio Steps", isOn: $cardioStepExclusionEnabled)
+                DisclosureGroup("Activity & reminders") {
+                    Toggle("Exclude cardio steps", isOn: $cardioStepExclusionEnabled)
                         .onChange(of: cardioStepExclusionEnabled) { _, newValue in
                             Task { await saveCardioStepExclusion(newValue) }
                         }
-                    Text("When on, the Dashboard subtracts steps logged during a cardio session (e.g. treadmill) from today's total, so machine-counted steps don't inflate your real walking count.")
+                    Text("Subtract steps recorded during logged cardio from the Dashboard total.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-                .listRowBackground(AppRowBackground())
 
-                Section("Step Source") {
-                    Picker("Step Source", selection: $stepSource) {
+                    Picker("Step count", selection: $stepSource) {
                         ForEach(StepSource.allCases) { source in
                             Text(source.displayName).tag(source)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
                     .onChange(of: stepSource) { _, newValue in
                         Task { await saveStepSource(newValue) }
                     }
-                    Text("Merged matches the Health app's total. Apple Watch Only counts just Watch-recorded steps, which undercounts on days the Watch isn't worn.")
+                    Text("Merged includes all Health sources. Watch Only uses steps recorded by Apple Watch.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-                .listRowBackground(AppRowBackground())
 
-                Section("Step Reminders") {
-                    Toggle("Remind Me To Hit My Step Goal", isOn: $stepRemindersEnabled)
+                    Toggle("Remind me to reach my step goal", isOn: $stepRemindersEnabled)
                     if stepRemindersEnabled {
-                        DatePicker("Evening Nudge", selection: $stepReminderTime, displayedComponents: .hourAndMinute)
+                        DatePicker("Evening reminder", selection: $stepReminderTime, displayedComponents: .hourAndMinute)
                     }
-                    Text("A nudge at the time above if you're still short of your step target, and an earlier one at 2pm if the day is running behind. They use the step count from the last time the app checked Health, which it does in the background through the day.")
+                    Text("Reminders use your most recent step count from Health, including an earlier nudge when the day is behind.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -130,15 +121,19 @@ struct SettingsView: View {
                 }
                 .listRowBackground(AppRowBackground())
 
-                Section("Apple Health") {
-                    healthStatusRow
-                    Button("Sync Now") {
-                        Task { await healthSync.requestAuthorizationAndSync() }
+                DisclosureGroup("Experimental") {
+                    NavigationLink {
+                        LibreOneScanTestView()
+                    } label: {
+                        Label("Libre 1 NFC test", systemImage: "wave.3.right")
                     }
+                    Text("Prototype only. It may not be supported on this iPhone and does not provide glucose readings or alerts.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .listRowBackground(AppRowBackground())
 
-                Section("Account") {
+                Section("Account & privacy") {
                     NavigationLink("Your Data") {
                         AccountDataView()
                     }
@@ -202,6 +197,7 @@ struct SettingsView: View {
             cardioStepExclusionEnabled = preferences.cardioStepExclusionEnabled
             stepSource = preferences.stepSource
             stepRemindersEnabled = preferences.stepRemindersEnabled
+            dailyCheckinRemindersEnabled = preferences.dailyCheckinRemindersEnabled
             stepReminderTime = Calendar.current.date(
                 bySettingHour: preferences.stepReminderMinutes / 60, minute: preferences.stepReminderMinutes % 60, second: 0, of: Date()
             ) ?? Date()
@@ -229,6 +225,9 @@ struct SettingsView: View {
         let minutes = (parts.hour ?? 18) * 60 + (parts.minute ?? 30)
         let enabled = stepRemindersEnabled
         Task {
+            if enabled {
+                _ = await NotificationAuthorizationService.requestIfNeeded()
+            }
             do {
                 try await preferencesRepository.setStepReminders(enabled: enabled, minutes: minutes)
                 preferencesError = nil
@@ -237,6 +236,19 @@ struct SettingsView: View {
             }
             await StepReminderService.shared.refresh(force: true)
         }
+    }
+
+    private func saveDailyCheckinReminders(_ enabled: Bool) async {
+        if enabled {
+            _ = await NotificationAuthorizationService.requestIfNeeded()
+        }
+        do {
+            try await preferencesRepository.setDailyCheckinReminders(enabled: enabled)
+            preferencesError = nil
+        } catch {
+            preferencesError = error.localizedDescription
+        }
+        await DailyCheckinReminderService.shared.refresh()
     }
 
     private func saveCardioStepExclusion(_ enabled: Bool) async {

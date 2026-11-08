@@ -22,10 +22,6 @@ struct ScaleSetupView: View {
                             LabeledContent("Reading", value: "\(AmountLabel.trimmed(grams)) g")
                                 .font(.title3.bold())
                         }
-                        if let unit = scale.unit {
-                            LabeledContent("Scale shows", value: ScaleDecoding.unitName(unit))
-                        }
-                        LabeledContent("TARE presses seen", value: "\(scale.tarePresses)")
                     } else {
                         Button("Reconnect now") { scale.reconnectNow() }
                     }
@@ -60,7 +56,7 @@ struct ScaleSetupView: View {
                     Text("Pair a Scale")
                 } footer: {
                     Text(scale.status.isEmpty
-                         ? "Turn the scale on first, and close its own app. Tap your scale in the list once to pair it - it's MY_SCALE for the Phoenix."
+                         ? "Turn on the Phoenix scale and close Fitdays+. Tap it once to pair. The app will remember it and reconnect when it wakes."
                          : scale.status)
                 }
                 .listRowBackground(AppRowBackground())

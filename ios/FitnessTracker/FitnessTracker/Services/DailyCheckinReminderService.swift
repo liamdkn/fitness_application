@@ -28,18 +28,16 @@ final class DailyCheckinReminderService {
 
     private init() {}
 
-    /// Requests permission once - call at a natural moment (app launch),
-    /// same as `HealthSyncService.requestAuthorizationAndSync()`. A denial
-    /// just means `refresh()`'s own authorization check below no-ops.
-    func requestAuthorization() async {
-        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
-    }
-
     /// Reflects whichever is true right now: cancels the reminder if
     /// today's check-in is already done, or (re)schedules it for the wake-based time today
     /// if it's not and that time hasn't passed yet.
     func refresh() async {
         let center = UNUserNotificationCenter.current()
+        guard let preferences = try? await UserPreferencesRepository().fetch(),
+              preferences.dailyCheckinRemindersEnabled else {
+            cancelTodaysReminder()
+            return
+        }
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
             return

@@ -56,7 +56,7 @@ final class SupabaseService: ObservableObject {
         Task { await observeAuthChanges() }
         // Never hold the launch screen for long if the check is slow.
         Task {
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
             hasResolvedInitialSession = true
         }
     }

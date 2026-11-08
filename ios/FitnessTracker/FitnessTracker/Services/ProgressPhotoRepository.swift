@@ -70,16 +70,41 @@ struct ProgressPhotoRepository {
     /// Removes every photo file this user has uploaded - done before deleting
     /// the account, since stored files can't be removed from the database side.
     func deleteAllFiles() async throws {
-        let photos = try await fetchRecent(limit: 5000)
-        let paths = photos.map(\.storagePath)
-        guard !paths.isEmpty else { return }
-        // In batches, so one request never carries thousands of paths.
-        for start in stride(from: 0, to: paths.count, by: 100) {
-            _ = try await client.storage.from(bucket).remove(paths: Array(paths[start..<min(start + 100, paths.count)]))
-        }
+        try await UserStorageCleanup.deleteFiles(in: bucket, client: client)
     }
 
     func signedURL(path: String, expiresIn: Int = 3600) async throws -> URL {
         try await client.storage.from(bucket).createSignedURL(path: path, expiresIn: expiresIn)
+    }
+}
+
+/// Deletes every object under the signed-in user's folder, including objects
+/// left behind if an upload succeeded but its database row did not. Listing
+/// the bucket avoids PostgREST's row cap and keeps account deletion complete.
+enum UserStorageCleanup {
+    static func deleteFiles(in bucket: String, client: SupabaseClient) async throws {
+        let ownerPath = try await client.auth.session.user.id.uuidString
+        let pageSize = 100
+        var offset = 0
+        var paths: [String] = []
+
+        while true {
+            let files = try await client.storage.from(bucket).list(
+                path: ownerPath,
+                options: SearchOptions(limit: pageSize, offset: offset)
+            )
+            let pagePaths = files.compactMap { file -> String? in
+                guard file.id != nil else { return nil }
+                return "\(ownerPath)/\(file.name)"
+            }
+            paths.append(contentsOf: pagePaths)
+            guard files.count == pageSize else { break }
+            offset += files.count
+        }
+
+        for start in stride(from: 0, to: paths.count, by: pageSize) {
+            let end = min(start + pageSize, paths.count)
+            _ = try await client.storage.from(bucket).remove(paths: Array(paths[start..<end]))
+        }
     }
 }

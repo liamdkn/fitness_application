@@ -55,6 +55,11 @@ struct UserPreferencesRepository {
         let step_reminder_minutes: Int
     }
 
+    private struct UpsertDailyCheckinReminders: Encodable {
+        let user_id: UUID
+        let daily_checkin_reminders_enabled: Bool
+    }
+
     private struct UpsertCardioStepExclusion: Encodable {
         let user_id: UUID
         let cardio_step_exclusion_enabled: Bool
@@ -239,6 +244,22 @@ struct UserPreferencesRepository {
         guard let preferences = saved.first else {
             throw RepositoryError.insertFailed
         }
+        return preferences
+    }
+
+    @discardableResult
+    func setDailyCheckinReminders(enabled: Bool) async throws -> UserPreferences {
+        let userId = try await client.auth.session.user.id
+        let saved: [UserPreferences] = try await client
+            .from("user_preferences")
+            .upsert(
+                UpsertDailyCheckinReminders(user_id: userId, daily_checkin_reminders_enabled: enabled),
+                onConflict: "user_id"
+            )
+            .select()
+            .execute()
+            .value
+        guard let preferences = saved.first else { throw RepositoryError.insertFailed }
         return preferences
     }
 

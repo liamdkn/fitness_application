@@ -273,7 +273,7 @@ struct CaffeineSettingsView: View {
     @State private var targetMg = 50
     @State private var sodiumLimit = 2300
     @State private var bedtimeFromHealth = true
-    @State private var remindersEnabled = true
+    @State private var remindersEnabled = false
     @State private var detected: BedtimeResolver.Resolved?
     @State private var loaded = false
     private let repository = UserPreferencesRepository()
@@ -341,7 +341,7 @@ struct CaffeineSettingsView: View {
         .onChange(of: targetMg) { save() }
         .onChange(of: sodiumLimit) { save() }
         .onChange(of: bedtimeFromHealth) { save() }
-        .onChange(of: remindersEnabled) { save() }
+        .onChange(of: remindersEnabled) { save(requestNotifications: remindersEnabled) }
     }
 
     private static func timeText(_ minutes: Int) -> String {
@@ -365,11 +365,14 @@ struct CaffeineSettingsView: View {
         loaded = true
     }
 
-    private func save() {
+    private func save(requestNotifications: Bool = false) {
         guard loaded else { return }
         let parts = Calendar.current.dateComponents([.hour, .minute], from: bedtime)
         let minutes = (parts.hour ?? 22) * 60 + (parts.minute ?? 30)
         Task {
+            if requestNotifications {
+                _ = await NotificationAuthorizationService.requestIfNeeded()
+            }
             _ = try? await repository.setLiquidsSettings(
                 sodiumLimitMg: sodiumLimit, caffeineLimitMg: limitMg, bedtimeMinutes: minutes,
                 halfLifeHours: halfLife, bedtimeTargetMg: targetMg,

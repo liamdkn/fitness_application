@@ -12,17 +12,19 @@ enum LocalData {
     private static let ownerKey = "local-data-owner"
 
     /// Called whenever a session is known. A different user than last time
-    /// wipes everything first. The first time this has ever run, whoever's
-    /// signed in is taken to be the phone's owner (the data already here is
-    /// theirs) and nothing is cleared.
+    /// wipes everything first. If the local data predates account ownership,
+    /// discard it: we cannot prove which account owns those queued writes.
     static func claim(_ userId: UUID) {
         let stored = UserDefaults.standard.string(forKey: ownerKey)
-        if let stored, stored != userId.uuidString {
+        if stored != userId.uuidString {
             wipe()
+        } else {
+            // Only legacy rows can lack an owner. Once the owner key matches,
+            // those rows can safely be attributed to the same account.
+            OfflineOutbox.shared.adoptUnowned(by: userId)
+            OfflineMealQueue.shared.adoptUnowned(by: userId)
+            OfflineWorkoutQueue.shared.adoptUnowned(by: userId)
         }
-        OfflineOutbox.shared.adoptUnowned(by: userId)
-        OfflineMealQueue.shared.adoptUnowned(by: userId)
-        OfflineWorkoutQueue.shared.adoptUnowned(by: userId)
         UserDefaults.standard.set(userId.uuidString, forKey: ownerKey)
     }
 

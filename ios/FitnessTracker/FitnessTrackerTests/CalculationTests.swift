@@ -136,6 +136,38 @@ struct BedtimeAndCaffeineTests {
     }
 }
 
+struct UserPreferencesPrivacyDefaultsTests {
+    private let legacyJSON = """
+    {
+      "weekly_checkin_weekday": 2,
+      "cardio_step_exclusion_enabled": false,
+      "step_source": "merged",
+      "enabled_cardio_types": [],
+      "preferred_gym_id": null,
+      "daily_water_ml_target_min": 2500,
+      "daily_water_ml_target_max": 3000
+    }
+    """
+
+    @Test func legacyPreferencesDoNotOptIntoNotifications() throws {
+        let preferences = try JSONDecoder().decode(UserPreferences.self, from: Data(legacyJSON.utf8))
+        #expect(!preferences.caffeineRemindersEnabled)
+        #expect(!preferences.stepRemindersEnabled)
+        #expect(!preferences.dailyCheckinRemindersEnabled)
+    }
+
+    @Test func explicitReminderChoicesStillDecode() throws {
+        let explicit = legacyJSON.replacingOccurrences(
+            of: "\n}",
+            with: ",\n  \"caffeine_reminders_enabled\": true,\n  \"step_reminders_enabled\": true,\n  \"daily_checkin_reminders_enabled\": true\n}"
+        )
+        let preferences = try JSONDecoder().decode(UserPreferences.self, from: Data(explicit.utf8))
+        #expect(preferences.caffeineRemindersEnabled)
+        #expect(preferences.stepRemindersEnabled)
+        #expect(preferences.dailyCheckinRemindersEnabled)
+    }
+}
+
 struct FoodAndRunFormattingTests {
     @Test func measuredFoodsShowRealAmounts() {
         #expect(AmountLabel.text(quantity: 0.8, servingSize: 100, servingUnit: "g", servingLabel: "100g") == "80g")

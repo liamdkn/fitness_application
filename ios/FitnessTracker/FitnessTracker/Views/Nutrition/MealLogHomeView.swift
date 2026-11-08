@@ -47,7 +47,7 @@ struct MealLogHomeView: View {
         Calendar.current.isDateInToday(selectedDate)
     }
 
-    /// Monday-first, matching the MFP-style week strip below the title -
+    /// Monday-first, matching the compact week strip below the title -
     /// this app's other week-based logic (weekly check-in, weekly schedule)
     /// doesn't care which day a week "starts" on, so there's no existing
     /// convention this needs to match instead.
@@ -604,9 +604,9 @@ struct MacroProgressCard: View {
     }
 }
 
-/// The MFP-style "M T W T F S S" row under the date header - a small dot
+/// The "M T W T F S S" row under the date header - a small dot
 /// marks the real-world today (distinct from whichever day is currently
-/// selected, which this app tracks but MFP's own diary doesn't need to),
+/// selected),
 /// the selected day's letter is bold/tinted, and each circle fills with a
 /// checkmark once that day has at least one entry logged. Every day in the
 /// week is tappable, including ones later than today - planning or

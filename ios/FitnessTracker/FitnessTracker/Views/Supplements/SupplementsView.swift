@@ -282,6 +282,9 @@ struct SupplementEditorView: View {
             return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         }
         do {
+            if !minutes.isEmpty {
+                _ = await NotificationAuthorizationService.requestIfNeeded()
+            }
             try await repository.save(
                 supplement, name: name.trimmingCharacters(in: .whitespaces), unit: unit, amountPerServing: amount,
                 scoopSizeG: Double(scoopSizeText), servingsPerDay: servings, reminderTimes: minutes, sortOrder: nextSortOrder

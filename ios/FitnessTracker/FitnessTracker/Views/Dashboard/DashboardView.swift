@@ -6,6 +6,7 @@ struct DashboardView: View {
     @StateObject private var coachViewModel = CoachViewModel(fireMoments: true)
     @State private var activeSheet: DashboardSheet?
     @State private var selectedDate = Date()
+    @State private var showingMoreDashboardTools = false
     @ObservedObject private var checkinAvailability = CheckinAvailabilityService.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
@@ -55,8 +56,6 @@ struct DashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     CoachCardView(viewModel: coachViewModel)
-
-                    NearestRewardCard(viewModel: coachViewModel)
 
                     // The Daily row always stays - completing it doesn't
                     // make it un-tappable, since a mistyped number (weight,
@@ -169,31 +168,38 @@ struct DashboardView: View {
                         }
                     }
 
-                    if let goal = viewModel.goal {
-                        NavigationLink {
-                            PhaseReportView()
-                        } label: {
-                            DashboardCard {
-                                HStack {
-                                    Label("Phase report", systemImage: "chart.line.uptrend.xyaxis")
-                                    Spacer()
-                                    Text(phaseSummary(goal))
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
+                    DisclosureGroup("More dashboard tools", isExpanded: $showingMoreDashboardTools) {
+                        VStack(spacing: 16) {
+                            NearestRewardCard(viewModel: coachViewModel)
+
+                            if let goal = viewModel.goal {
+                                NavigationLink {
+                                    PhaseReportView()
+                                } label: {
+                                    DashboardCard {
+                                        HStack {
+                                            Label("Phase report", systemImage: "chart.line.uptrend.xyaxis")
+                                            Spacer()
+                                            Text(phaseSummary(goal))
+                                                .font(.subheadline)
+                                                .foregroundStyle(.secondary)
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption)
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
                                 }
+                                .buttonStyle(.plain)
                             }
+
+                            SupplementsCard()
+                            WeeklyLogLinkCard()
+                            WatchActivityCard(viewModel: watchActivityViewModel)
                         }
-                        .buttonStyle(.plain)
                     }
-
-                    SupplementsCard()
-
-                    WeeklyLogLinkCard()
-
-                    WatchActivityCard(viewModel: watchActivityViewModel)
+                    .font(.headline)
+                    .padding(16)
+                    .appCard()
 
                     if let errorMessage = viewModel.errorMessage {
                         Text(errorMessage).foregroundStyle(AppColor.error)
@@ -219,22 +225,10 @@ struct DashboardView: View {
                 }
             }
             .task {
-                await viewModel.load(date: selectedDate)
-                await viewModel.loadWeightGlance()
-                await viewModel.loadOffPlanInsights()
-                await viewModel.loadWaterGlance()
-                await checkinAvailability.refresh()
-                await watchActivityViewModel.loadCandidates()
-                await coachViewModel.load()
+                await refreshDashboard()
             }
             .refreshable {
-                await viewModel.load(date: selectedDate)
-                await viewModel.loadWeightGlance()
-                await viewModel.loadOffPlanInsights()
-                await viewModel.loadWaterGlance()
-                await checkinAvailability.refresh()
-                await watchActivityViewModel.loadCandidates()
-                await coachViewModel.load()
+                await refreshDashboard()
             }
             .onChange(of: scenePhase) { _, phase in
                 // The streak, stars and today's reminder follow the day's real log.
@@ -269,6 +263,20 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    /// The cards do not depend on one another, so start their network and
+    /// HealthKit reads together. This also keeps first load and pull-to-refresh
+    /// on the same path instead of allowing the two sequences to drift.
+    private func refreshDashboard() async {
+        async let day: Void = viewModel.load(date: selectedDate)
+        async let weight: Void = viewModel.loadWeightGlance()
+        async let offPlan: Void = viewModel.loadOffPlanInsights()
+        async let water: Void = viewModel.loadWaterGlance()
+        async let checkins: Void = checkinAvailability.refresh()
+        async let watch: Void = watchActivityViewModel.loadCandidates()
+        async let coach: Void = coachViewModel.load()
+        _ = await (day, weight, offPlan, water, checkins, watch, coach)
     }
 
     /// "Cut \u{00b7} Week 8 of 12".

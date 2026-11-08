@@ -20,7 +20,9 @@ final class CaffeineReminderService {
     func refresh() async {
         let center = UNUserNotificationCenter.current()
         let preferences = try? await preferencesRepository.fetch()
-        guard preferences?.caffeineRemindersEnabled ?? true else {
+        // Missing or unreadable preferences must never opt someone into
+        // notifications. The user has to enable caffeine reminders explicitly.
+        guard preferences?.caffeineRemindersEnabled ?? false else {
             cancelAll()
             return
         }

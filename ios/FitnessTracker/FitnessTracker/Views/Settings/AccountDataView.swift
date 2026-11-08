@@ -1,5 +1,4 @@
 import SwiftUI
-import Supabase
 
 private enum AccountExportError: LocalizedError {
     case pendingChanges
@@ -15,6 +14,7 @@ struct AccountDataView: View {
     @State private var isExporting = false
     @State private var showingDelete = false
     @State private var errorMessage: String?
+    private let repository = AccountDataRepository()
 
     var body: some View {
         Form {
@@ -38,7 +38,7 @@ struct AccountDataView: View {
             } header: {
                 Text("Export")
             } footer: {
-                Text("A JSON file with all of your logs, plans and settings. Progress photos aren't in it - they stay in the app until you save them.")
+                Text("A JSON file with your logs, plans and settings. Progress and reward photos are stored separately in private cloud storage and aren't included in this export. Account deletion removes uploaded photos.")
             }
             .listRowBackground(AppRowBackground())
 
@@ -71,10 +71,9 @@ struct AccountDataView: View {
             // Anything not sent yet goes first, so the export is complete.
             await LocalData.flushAll()
             guard LocalData.unsentCount == 0 else { throw AccountExportError.pendingChanges }
-            let response = try await SupabaseService.shared.client.rpc("export_my_data").execute()
             let name = "FitnessTracker-export-\(DateFormatting.isoDate(Date())).json"
             let url = FileManager.default.temporaryDirectory.appending(path: name)
-            try response.data.write(to: url, options: [.atomic, .completeFileProtection])
+            try await repository.exportData().write(to: url, options: [.atomic, .completeFileProtection])
             exportURL = url
             errorMessage = nil
         } catch {
@@ -89,6 +88,7 @@ private struct DeleteAccountSheet: View {
     @State private var typed = ""
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    private let repository = AccountDataRepository()
 
     var body: some View {
         NavigationStack {
@@ -127,12 +127,7 @@ private struct DeleteAccountSheet: View {
         isDeleting = true
         defer { isDeleting = false }
         do {
-            try await ProgressPhotoRepository().deleteAllFiles()
-            try await RewardRepository().deleteAllFiles()
-            try await SupabaseService.shared.client.rpc("delete_my_account").execute()
-            // The login no longer exists; clear this phone and go back to sign-in.
-            try? await SupabaseService.shared.signOut()
-            LocalData.wipe()
+            try await repository.deleteAccount()
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

@@ -19,11 +19,13 @@ struct UserPreferences: Codable {
     /// Work bedtime out from real sleep in Health, falling back to
     /// `bedtimeMinutes` when there isn't enough sleep data yet.
     var bedtimeFromHealth: Bool = true
-    var caffeineRemindersEnabled: Bool = true
+    var caffeineRemindersEnabled: Bool = false
     /// Step-goal nudges; `stepReminderMinutes` is the evening one (minutes
     /// after midnight, 1110 = 18:30).
-    var stepRemindersEnabled: Bool = true
+    var stepRemindersEnabled: Bool = false
     var stepReminderMinutes: Int = 1110
+    /// Morning weigh-in/check-in nudge. Off until explicitly enabled.
+    var dailyCheckinRemindersEnabled: Bool = false
     /// Daily milk allowance - see `MilkAllowanceService`.
     var milkAllowanceEnabled: Bool = false
     var milkAllowanceMl: Int = 100
@@ -52,6 +54,7 @@ struct UserPreferences: Codable {
         case caffeineRemindersEnabled = "caffeine_reminders_enabled"
         case stepRemindersEnabled = "step_reminders_enabled"
         case stepReminderMinutes = "step_reminder_minutes"
+        case dailyCheckinRemindersEnabled = "daily_checkin_reminders_enabled"
         case milkAllowanceEnabled = "milk_allowance_enabled"
         case milkAllowanceMl = "milk_allowance_ml"
         case milkFoodId = "milk_food_id"
@@ -77,9 +80,10 @@ struct UserPreferences: Codable {
         caffeineHalfLifeHours = try c.decodeIfPresent(Double.self, forKey: .caffeineHalfLifeHours) ?? 5
         caffeineBedtimeTargetMg = try c.decodeIfPresent(Int.self, forKey: .caffeineBedtimeTargetMg) ?? 50
         bedtimeFromHealth = try c.decodeIfPresent(Bool.self, forKey: .bedtimeFromHealth) ?? true
-        caffeineRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .caffeineRemindersEnabled) ?? true
-        stepRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .stepRemindersEnabled) ?? true
+        caffeineRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .caffeineRemindersEnabled) ?? false
+        stepRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .stepRemindersEnabled) ?? false
         stepReminderMinutes = try c.decodeIfPresent(Int.self, forKey: .stepReminderMinutes) ?? 1110
+        dailyCheckinRemindersEnabled = try c.decodeIfPresent(Bool.self, forKey: .dailyCheckinRemindersEnabled) ?? false
         milkAllowanceEnabled = try c.decodeIfPresent(Bool.self, forKey: .milkAllowanceEnabled) ?? false
         milkAllowanceMl = try c.decodeIfPresent(Int.self, forKey: .milkAllowanceMl) ?? 100
         milkFoodId = try c.decodeIfPresent(UUID.self, forKey: .milkFoodId)

@@ -106,11 +106,7 @@ struct RewardRepository {
     /// Removes every reward photo this user has uploaded - done before deleting the account,
     /// since stored files can't be removed from the database side.
     func deleteAllFiles() async throws {
-        let paths = try await fetchAll().compactMap(\.photoPath)
-        guard !paths.isEmpty else { return }
-        for start in stride(from: 0, to: paths.count, by: 100) {
-            _ = try await client.storage.from(bucket).remove(paths: Array(paths[start..<min(start + 100, paths.count)]))
-        }
+        try await UserStorageCleanup.deleteFiles(in: bucket, client: client)
     }
 }
 

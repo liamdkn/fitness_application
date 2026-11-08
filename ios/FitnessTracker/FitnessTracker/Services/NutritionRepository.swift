@@ -2,8 +2,8 @@ import Foundation
 import Supabase
 
 /// Daily calories and macros. New days come from the in-app meal log; the
-/// `nutrition_logs` table is only history - rows synced in from Apple Health
-/// (MyFitnessPal) before the app had its own meal log - so readers get the
+/// `nutrition_logs` table is only legacy history from before the app had its
+/// own meal log, so readers get the
 /// meal log first and fall back to those old rows for days that predate it.
 struct NutritionRepository {
     let client = SupabaseService.shared.client
@@ -17,7 +17,7 @@ struct NutritionRepository {
     /// the check-ins only ever read `nutrition_logs` - so food logged in the
     /// app never reached them. The Nutrition tab itself keeps using
     /// `fetchLog` directly, because it adds Health on top of the meal log
-    /// while the two are being transitioned between.
+    /// while the two sources are being transitioned between.
     func fetchDailyTotal(date: Date) async throws -> NutritionLog? {
         try await fetchDailyTotals(from: date, to: date).first
     }

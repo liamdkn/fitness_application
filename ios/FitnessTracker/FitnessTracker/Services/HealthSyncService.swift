@@ -27,14 +27,25 @@ final class HealthSyncService: ObservableObject {
     /// still fail on the second attempt and surface `errorMessage` as before).
     private let retryDelayNanoseconds: UInt64 = 2_000_000_000
 
+    /// Refreshes data using the user's existing Health permissions. This does
+    /// not show a system prompt and is safe to call at launch/foreground.
+    func sync() async {
+        await sync(requestAuthorization: false)
+    }
+
+    /// Called from the explicit Apple Health control in Settings.
     func requestAuthorizationAndSync() async {
+        await sync(requestAuthorization: true)
+    }
+
+    private func sync(requestAuthorization: Bool) async {
         guard !isSyncing else { return }
         isSyncing = true
         defer { isSyncing = false }
 
         for attempt in 1...2 {
             do {
-                try await performSync()
+                try await performSync(requestAuthorization: requestAuthorization)
                 lastSyncedAt = Date()
                 errorMessage = nil
                 return
@@ -48,8 +59,10 @@ final class HealthSyncService: ObservableObject {
         }
     }
 
-    private func performSync() async throws {
-        try await healthKit.requestAuthorization()
+    private func performSync(requestAuthorization: Bool) async throws {
+        if requestAuthorization {
+            try await healthKit.requestAuthorization()
+        }
         let userId = try await SupabaseService.shared.client.auth.session.user.id
         let preferences = try await preferencesRepository.fetch()
         let stepSource = preferences.stepSource
